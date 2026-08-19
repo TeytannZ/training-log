@@ -1,79 +1,103 @@
 @import "tailwindcss";
-@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700;800&family=JetBrains+Mono:wght@500;600;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700;800&family=IBM+Plex+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@500;600;700&display=swap');
 
 /*
-  Training Log — design tokens
+  Training Log — design tokens (v2)
   ------------------------------------------------------------------
-  Concept: the weight tiers (Light → Heavy) are recolored to follow
-  the "temper colors" that appear on tool steel as it's heat-treated —
-  pale straw, gold, bronze, purple, deep blue. It's a real metallurgy
-  phenomenon, it reads as a genuine gradient (not five random hues),
-  and it's grounded in the same material — iron — that the plates
-  themselves are made of. That ramp is the one signature color idea;
-  everything else stays quiet around it.
+  Concept: a dark equipment-room palette (warm charcoal, not pure
+  black) with a burnished-brass accent for interactive elements.
+
+  Signature idea: WEIGHT TIERS ARE COLOR-CODED LIKE COMPETITION
+  BUMPER PLATES. Olympic weightlifting/powerlifting plates use a
+  standardized color code by weight (white/green/yellow/blue/red as
+  load increases) — every lifter already reads plate color as "how
+  heavy" on sight. We reuse that exact real-world code for the five
+  load tiers instead of an invented ramp, so the color language is
+  something the audience already trusts and recognizes at a glance.
+  Class names (--color-w1..w5 etc.) are kept from the old palette so
+  the component tree below didn't need touching, only the values.
 */
 
 @theme {
-  --color-ink: #15171a;
-  --color-ink-soft: #4a4e55;
-  --color-ink-faint: #8a8f98;
+  /* Base surfaces — warm charcoal, not pure black (avoids the
+     generic "near-black + neon" look) */
+  --color-ink: #f2eee4;
+  --color-ink-soft: #b3ac9d;
+  --color-ink-faint: #7c7568;
 
-  --color-paper: #f4f5f0;
-  --color-card: #ffffff;
-  --color-line: #e2e4dd;
-  --color-mist: #eceee8;
+  --color-paper: #100f0d;
+  --color-card: #1a1815;
+  --color-line: #322e28;
+  --color-mist: #211f1b;
 
-  --color-charge: #1e9e5a;
-  --color-charge-strong: #147a44;
-  --color-charge-soft: #e2f5e9;
+  /* Primary interactive accent — burnished brass, like a barbell
+     collar. Warm, not neon; distinct from the plate colors below so
+     "this is tappable" never gets confused with "this is a weight". */
+  --color-charge: #d9a441;
+  --color-charge-strong: #b8822a;
+  --color-charge-soft: rgba(217, 164, 65, 0.14);
 
-  --color-danger: #d6473f;
-  --color-danger-soft: #fbe9e8;
+  --color-danger: #e5544a;
+  --color-danger-soft: rgba(229, 84, 74, 0.14);
 
-  /* Temper ramp — Light → Heavy */
-  --color-w1: #e7b740;
-  --color-w1-strong: #a9791a;
-  --color-w1-soft: #fbf3df;
-  --color-w1-ring: #f0dfae;
+  /* Plate color code — Light → Heavy, standardized competition
+     bumper-plate colors: white(5) → green(10) → yellow(15) →
+     blue(20) → red(25) */
+  --color-w1: #ded7c5;
+  --color-w1-strong: #867a5c;
+  --color-w1-soft: rgba(222, 215, 197, 0.12);
+  --color-w1-ring: rgba(222, 215, 197, 0.35);
 
-  --color-w2: #d98b2b;
-  --color-w2-strong: #96530f;
-  --color-w2-soft: #f8e9d2;
-  --color-w2-ring: #edce9c;
+  --color-w2: #57c07a;
+  --color-w2-strong: #2f8f52;
+  --color-w2-soft: rgba(87, 192, 122, 0.14);
+  --color-w2-ring: rgba(87, 192, 122, 0.4);
 
-  --color-w3: #b5652e;
-  --color-w3-strong: #7a3f17;
-  --color-w3-soft: #f1e0d2;
-  --color-w3-ring: #e3c1a3;
+  --color-w3: #e8c247;
+  --color-w3-strong: #a3791a;
+  --color-w3-soft: rgba(232, 194, 71, 0.14);
+  --color-w3-ring: rgba(232, 194, 71, 0.4);
 
-  --color-w4: #7a56a8;
-  --color-w4-strong: #4e3170;
-  --color-w4-soft: #efe7f5;
-  --color-w4-ring: #d8c5e8;
+  --color-w4: #6fa8dd;
+  --color-w4-strong: #3568a8;
+  --color-w4-soft: rgba(111, 168, 221, 0.14);
+  --color-w4-ring: rgba(111, 168, 221, 0.4);
 
-  --color-w5: #3a5686;
-  --color-w5-strong: #223a5e;
-  --color-w5-soft: #e1e8f2;
-  --color-w5-ring: #b9c9e0;
+  --color-w5: #ef6a5f;
+  --color-w5-strong: #b83226;
+  --color-w5-soft: rgba(239, 106, 95, 0.14);
+  --color-w5-ring: rgba(239, 106, 95, 0.4);
 
   --font-display: "Space Grotesk", ui-sans-serif, system-ui, sans-serif;
+  --font-body: "IBM Plex Sans", ui-sans-serif, system-ui, sans-serif;
   --font-mono: "JetBrains Mono", ui-monospace, monospace;
 }
 
 html {
   -webkit-tap-highlight-color: transparent;
+  color-scheme: dark;
 }
 
 body {
   background: var(--color-paper);
   color: var(--color-ink);
-  font-family: var(--font-display);
+  font-family: var(--font-body);
 }
 
 ::selection {
   background: var(--color-charge-soft);
-  color: var(--color-charge-strong);
+  color: var(--color-charge);
 }
+
+/* visible keyboard focus everywhere, since the app drops most shadows */
+:focus-visible {
+  outline: 2px solid var(--color-charge);
+  outline-offset: 2px;
+}
+
+/* hide scrollbars on horizontally-scrolling chip rows (day picker, etc.) */
+.tl-scroll { scrollbar-width: none; -ms-overflow-style: none; }
+.tl-scroll::-webkit-scrollbar { display: none; }
 
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {

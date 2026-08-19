@@ -1,12 +1,12 @@
 import React, { useState, useEffect, useRef, useCallback, useReducer } from "react";
 import { initializeApp, getApps } from "firebase/app";
-import { getAuth, GoogleAuthProvider, signInAnonymously, linkWithPopup, onAuthStateChanged, signInWithPopup, signOut, createUserWithEmailAndPassword, signInWithEmailAndPassword } from "firebase/auth";
-import { getFirestore, doc, getDoc, setDoc, collection, query, where, getDocs, addDoc, serverTimestamp } from "firebase/firestore";
+import { getAuth, GoogleAuthProvider, signInAnonymously, linkWithPopup, onAuthStateChanged, signInWithPopup, signInWithRedirect, signOut, createUserWithEmailAndPassword, signInWithEmailAndPassword } from "firebase/auth";
+import { getFirestore, doc, getDoc, setDoc, deleteDoc, collection, query, where, getDocs, addDoc, serverTimestamp } from "firebase/firestore";
 import {
   Plus, Pencil, Trash2, Camera, X, Check, Star, Dumbbell,
   Loader2, ChevronDown, Search, Download, Upload, ChevronRight,
   Cloud, RefreshCw, AlertTriangle, Sparkles, Users, Send, Copy, Calendar,
-  Home, User, WifiOff, Clock, Flame, Volume2, VolumeX,
+  Home, User, WifiOff, Clock, Flame, Volume2, VolumeX, Menu, Share, PlusSquare,
 } from "lucide-react";
 
 // ---- Fill these in once your repo exists — see the setup steps at the end of the chat ----
@@ -20,16 +20,17 @@ const FIREBASE_CONFIG = {
   appId: "1:303445078047:web:2353aedb4bab7d924b652a",
 };
 
-// ---- Weight tiers, recolored to follow "temper colors" — the sequence tool
-// steel runs through as it's heat-treated (pale straw → gold → bronze →
-// purple → deep blue). Light loads read as pale/warm, heavy loads read as
-// deep/cool — one coherent ramp instead of five unrelated hues. ----
+// ---- Weight tiers, recolored to the standardized color code used on
+// competition bumper plates (white -> green -> yellow -> blue -> red as
+// load increases). Every lifter already reads plate color as "how heavy"
+// on sight, so the app reuses that real system instead of an invented
+// one. See index.css for the actual hex values behind each class. ----
 const WEIGHT_INFO = {
-  Light: { bg: "bg-w1-soft", text: "text-w1-strong", ring: "ring-w1-ring", dot: "bg-w1", solid: "bg-w1-strong", accent: "text-w1", hex: "#e7b740", desc: "fails ~15-20 reps" },
-  "Light-Medium": { bg: "bg-w2-soft", text: "text-w2-strong", ring: "ring-w2-ring", dot: "bg-w2", solid: "bg-w2-strong", accent: "text-w2", hex: "#d98b2b", desc: "fails ~12-18 reps" },
-  Medium: { bg: "bg-w3-soft", text: "text-w3-strong", ring: "ring-w3-ring", dot: "bg-w3", solid: "bg-w3-strong", accent: "text-w3", hex: "#b5652e", desc: "fails ~8-15 reps" },
-  "Medium-Heavy": { bg: "bg-w4-soft", text: "text-w4-strong", ring: "ring-w4-ring", dot: "bg-w4", solid: "bg-w4-strong", accent: "text-w4", hex: "#7a56a8", desc: "fails ~6-10 reps" },
-  Heavy: { bg: "bg-w5-soft", text: "text-w5-strong", ring: "ring-w5-ring", dot: "bg-w5", solid: "bg-w5-strong", accent: "text-w5", hex: "#3a5686", desc: "fails ~4-8 reps" },
+  Light: { bg: "bg-w1-soft", text: "text-w1-strong", ring: "ring-w1-ring", dot: "bg-w1", solid: "bg-w1-strong", accent: "text-w1", hex: "#ded7c5", plate: "White", desc: "fails ~15-20 reps" },
+  "Light-Medium": { bg: "bg-w2-soft", text: "text-w2-strong", ring: "ring-w2-ring", dot: "bg-w2", solid: "bg-w2-strong", accent: "text-w2", hex: "#57c07a", plate: "Green", desc: "fails ~12-18 reps" },
+  Medium: { bg: "bg-w3-soft", text: "text-w3-strong", ring: "ring-w3-ring", dot: "bg-w3", solid: "bg-w3-strong", accent: "text-w3", hex: "#e8c247", plate: "Yellow", desc: "fails ~8-15 reps" },
+  "Medium-Heavy": { bg: "bg-w4-soft", text: "text-w4-strong", ring: "ring-w4-ring", dot: "bg-w4", solid: "bg-w4-strong", accent: "text-w4", hex: "#6fa8dd", plate: "Blue", desc: "fails ~6-10 reps" },
+  Heavy: { bg: "bg-w5-soft", text: "text-w5-strong", ring: "ring-w5-ring", dot: "bg-w5", solid: "bg-w5-strong", accent: "text-w5", hex: "#ef6a5f", plate: "Red", desc: "fails ~4-8 reps" },
 };
 const WEIGHT_OPTIONS = ["Light", "Light-Medium", "Medium", "Medium-Heavy", "Heavy"];
 const STORAGE_KEY = "training-log-plans-v4";
@@ -176,12 +177,39 @@ const dbase = getFirestore(firebaseApp);
 
 function startAnon() { return signInAnonymously(auth); }
 function upgradeToGoogle() { return linkWithPopup(auth.currentUser, new GoogleAuthProvider()); }
-function signInGoogle() { return signInWithPopup(auth, new GoogleAuthProvider()); }
+function isStandalonePwa() { return typeof window !== "undefined" && (window.matchMedia?.("(display-mode: standalone)").matches || window.navigator.standalone === true); }
+function signInGoogle() {
+  // Popups can misbehave inside an installed/standalone PWA window (no
+  // sensible place for the popup to open) — fall back to a full-page
+  // redirect there instead of surfacing a confusing failure.
+  if (isStandalonePwa()) return signInWithRedirect(auth, new GoogleAuthProvider());
+  return signInWithPopup(auth, new GoogleAuthProvider()).catch((err) => {
+    if (err?.code === "auth/popup-blocked" || err?.code === "auth/operation-not-supported-in-this-environment") {
+      return signInWithRedirect(auth, new GoogleAuthProvider());
+    }
+    throw err;
+  });
+}
 function signUpEmail(email, pw) { return createUserWithEmailAndPassword(auth, email, pw); }
 function signInEmail(email, pw) { return signInWithEmailAndPassword(auth, email, pw); }
 function signOutUser() { return signOut(auth); }
 function subscribeAuth(cb) { return onAuthStateChanged(auth, cb); }
 function isRealAccount(user) { return !!user && !user.isAnonymous; }
+
+// Turns a Firebase auth error into something a user (and Spirito, debugging)
+// can actually read, instead of a hardcoded generic string.
+function authErrorMessage(err, fallback) {
+  const code = err?.code || "";
+  if (code === "auth/popup-blocked") return "Your browser blocked the sign-in popup — allow popups for this site and try again.";
+  if (code === "auth/popup-closed-by-user") return "Sign-in window closed before finishing — try again.";
+  if (code === "auth/unauthorized-domain") return "This domain isn't authorized for sign-in yet (Firebase console → Authentication → Settings → Authorized domains).";
+  if (code === "auth/network-request-failed") return "Network error — check your connection and try again.";
+  if (code === "auth/email-already-in-use") return "That email already has an account — try signing in instead.";
+  if (code === "auth/invalid-credential" || code === "auth/wrong-password" || code === "auth/user-not-found") return "Email or password didn't match — try again.";
+  if (code === "auth/weak-password") return "Password needs to be at least 6 characters.";
+  if (code === "auth/invalid-email") return "That doesn't look like a valid email.";
+  return code ? `${fallback} (${code})` : fallback;
+}
 
 async function loadUserData(uid) {
   const snap = await getDoc(doc(dbase, "users", uid));
@@ -193,43 +221,122 @@ async function saveUserData(uid, name, data) {
 async function saveProfileInfo(uid, firstName, familyName, email) {
   await setDoc(doc(dbase, "users", uid), { firstName, familyName, email, lastActive: serverTimestamp() }, { merge: true });
 }
+
+// ---- Admins ----
+// There's no backend here (no Cloud Functions), so admin status can't be a
+// field a user sets on their own document — a user could just edit that
+// field on themselves. Instead admin-ness is a hardcoded allow-list of
+// UIDs, kept in TWO places that must match: this array (so the app knows
+// to show admin UI) and firestore.rules (so Firestore actually enforces
+// it server-side). The array here is convenience only — it grants no real
+// permission by itself, since every write it enables is re-checked by the
+// rules regardless of what this file says.
+const ADMIN_UIDS = [
+  "TIQ1Ja4qDTRSdr9IPcjiO2A0DFf1"
+];
+function isAdmin(user) { return !!user && ADMIN_UIDS.includes(user.uid); }
+
+// ---- Shared plans (community + share-by-code) ----
+// One collection, two ways a plan can leave "private":
+//  - visibility "public": submitted for review, only listed in Community
+//    once an admin flips approved -> true.
+//  - visibility "shared": instantly live, but only reachable by a 6-char
+//    code — the code IS the Firestore document ID, so finding one means
+//    doing a direct getDoc-by-id (allowed by the rules), not a collection
+//    query (which the rules deliberately do not allow for "shared" docs,
+//    so they can't be discovered by browsing).
+// Plans that never touch this collection at all (the normal case) are
+// exactly as private as they've always been.
+function cleanPlanForSharing(plan) {
+  return { ...plan, days: plan.days.map((d) => ({ ...d, exercises: d.exercises.map(({ image, ...rest }) => rest) })) };
+}
+function makeShareCode() {
+  const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"; // no 0/O/1/I — easier to read out loud
+  let out = "";
+  for (let i = 0; i < 6; i++) out += chars[Math.floor(Math.random() * chars.length)];
+  return out;
+}
 async function fetchCommunityPlans() {
-  const q = query(collection(dbase, "community"), where("approved", "==", true));
+  const q = query(collection(dbase, "sharedPlans"), where("visibility", "==", "public"), where("approved", "==", true));
   const snap = await getDocs(q);
   return snap.docs.map((d) => ({ id: d.id, ...d.data() }));
 }
 async function submitPlanForReview(plan, uid, name) {
-  const clean = { ...plan, days: plan.days.map((d) => ({ ...d, exercises: d.exercises.map(({ image, ...rest }) => rest) })) };
-  await addDoc(collection(dbase, "community"), { ...clean, ownerId: uid, author: name, approved: false, submittedAt: serverTimestamp() });
+  const clean = cleanPlanForSharing(plan);
+  await addDoc(collection(dbase, "sharedPlans"), { ...clean, ownerId: uid, author: name, visibility: "public", approved: false, submittedAt: serverTimestamp() });
+}
+async function shareplanByCode(plan, uid, name) {
+  const clean = cleanPlanForSharing(plan);
+  const code = makeShareCode();
+  await setDoc(doc(dbase, "sharedPlans", code), { ...clean, ownerId: uid, author: name, visibility: "shared", approved: true, submittedAt: serverTimestamp() });
+  return code;
+}
+async function stopSharingPlan(shareId) {
+  await deleteDoc(doc(dbase, "sharedPlans", shareId));
+}
+async function fetchPlanByCode(code) {
+  const snap = await getDoc(doc(dbase, "sharedPlans", code.trim().toUpperCase()));
+  if (!snap.exists() || snap.data().visibility !== "shared") return null;
+  return { id: snap.id, ...snap.data() };
+}
+async function fetchPendingSubmissions() {
+  const q = query(collection(dbase, "sharedPlans"), where("visibility", "==", "public"), where("approved", "==", false));
+  const snap = await getDocs(q);
+  return snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+}
+async function adminSetApproved(planId, approved) {
+  await setDoc(doc(dbase, "sharedPlans", planId), { approved }, { merge: true });
+}
+async function adminDeleteSharedPlan(planId) {
+  await deleteDoc(doc(dbase, "sharedPlans", planId));
 }
 
-function WeightBadge({ weight, size = "sm" }) {
+
+// ---- Shared UI ----
+
+function Field({ label, children }) { return <div><label className="block text-sm font-bold text-ink-soft mb-1.5">{label}</label>{children}</div>; }
+const inputClass = "w-full rounded-xl border border-line px-4 py-3 text-base bg-mist text-ink placeholder:text-ink-faint focus:outline-none focus:ring-2 focus:ring-charge focus:border-charge transition-shadow";
+const sheetClass = "bg-card w-full sm:max-w-md sm:rounded-2xl rounded-t-2xl max-h-[92vh] overflow-y-auto border border-line shadow-2xl";
+
+// A tiny plate silhouette — a ring with a bore hole — instead of a plain
+// dot, so the weight tier reads as an actual gym plate, not decoration.
+function PlateIcon({ weight, size = 16 }) {
   const s = WEIGHT_INFO[weight] || WEIGHT_INFO.Medium;
+  const hole = Math.max(3, Math.round(size * 0.34));
   return (
-    <span className={`inline-flex items-center gap-1.5 rounded-full font-bold ring-1 font-mono ${s.bg} ${s.text} ${s.ring} ${size === "lg" ? "px-3 py-1.5 text-sm" : "px-2.5 py-1 text-xs"}`}>
-      <span className={`w-2 h-2 rounded-full ${s.dot}`} />{weight}
+    <span
+      className="inline-block rounded-full shrink-0"
+      style={{ width: size, height: size, background: s.hex, boxShadow: `inset 0 0 0 ${Math.max(1, Math.round(size * 0.08))}px rgba(16,15,13,0.35)` }}
+    >
+      <span className="block rounded-full bg-paper mx-auto" style={{ width: hole, height: hole, marginTop: (size - hole) / 2 }} />
     </span>
   );
 }
 
-// The signature element: one continuous ramp — the same colors steel runs
-// through as it's tempered — standing in for how heavy a lift feels.
-function WeightLegend() {
+function PlateBadge({ weight, size = "sm" }) {
+  const s = WEIGHT_INFO[weight] || WEIGHT_INFO.Medium;
+  return (
+    <span className={`inline-flex items-center gap-1.5 rounded-full font-bold ring-1 font-mono ${s.bg} ${s.text} ${s.ring} ${size === "lg" ? "px-3 py-1.5 text-sm" : "px-2.5 py-1 text-xs"}`}>
+      <PlateIcon weight={weight} size={size === "lg" ? 14 : 11} />{weight}
+    </span>
+  );
+}
+
+// The signature element: weight tiers colored exactly like standardized
+// competition bumper plates, shown here as a scannable row of plates.
+function PlateLegend() {
   return (
     <div className="mb-5 rounded-2xl border border-line bg-card px-4 py-3.5">
-      <div className="flex items-center gap-1.5 mb-2.5">
-        <Flame className="w-3.5 h-3.5 text-ink-faint" />
-        <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-ink-faint">Load, at a glance</p>
+      <div className="flex items-center gap-1.5 mb-3">
+        <Dumbbell className="w-3.5 h-3.5 text-ink-faint" />
+        <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-ink-faint">Plate guide — load at a glance</p>
       </div>
-      <div
-        className="h-2 rounded-full mb-2.5"
-        style={{ background: "linear-gradient(to right, #e7b740, #d98b2b, #b5652e, #7a56a8, #3a5686)" }}
-      />
       <div className="flex justify-between gap-1">
         {WEIGHT_OPTIONS.map((w) => (
-          <div key={w} className="text-center flex-1">
+          <div key={w} className="text-center flex-1 flex flex-col items-center gap-1.5">
+            <PlateIcon weight={w} size={22} />
             <div className="text-[10px] font-bold text-ink leading-tight">{w}</div>
-            <div className="text-[9px] text-ink-faint leading-tight font-mono">{WEIGHT_INFO[w].desc.replace("fails ", "")}</div>
+            <div className="text-[9px] text-ink-faint leading-tight font-mono hidden sm:block">{WEIGHT_INFO[w].desc.replace("fails ", "")}</div>
           </div>
         ))}
       </div>
@@ -240,17 +347,17 @@ function WeightLegend() {
 function PhotoChooser({ libraryImage, onPickUpload, onUseLibrary, onCancel }) {
   const inputRef = useRef(null);
   return (
-    <div className="fixed inset-0 z-[60] flex items-end sm:items-center justify-center bg-ink/50 backdrop-blur-[2px]" onClick={onCancel}>
+    <div className="fixed inset-0 z-[60] flex items-end sm:items-center justify-center bg-black/60 backdrop-blur-[2px]" onClick={onCancel}>
       <div className={sheetClass} onClick={(e) => e.stopPropagation()}>
         <div className="p-5 space-y-2.5">
           <h3 className="font-display font-black text-lg text-ink mb-2">Add a photo</h3>
           {libraryImage && (
-            <button onClick={() => onUseLibrary(libraryImage)} className="w-full flex items-center gap-3 p-3 rounded-2xl border border-line text-left hover:border-charge/50 hover:bg-charge-soft/40 transition-colors">
+            <button onClick={() => onUseLibrary(libraryImage)} className="w-full flex items-center gap-3 p-3 rounded-2xl border border-line text-left hover:border-charge/50 hover:bg-charge-soft transition-colors">
               <img src={libraryImage} alt="" className="w-14 h-14 rounded-xl object-cover shrink-0" />
               <span><span className="font-bold text-ink block text-sm">Use library photo</span><span className="text-xs text-ink-faint">Already matched to this exercise</span></span>
             </button>
           )}
-          <button onClick={() => inputRef.current?.click()} className="w-full flex items-center gap-3 p-3 rounded-2xl border border-line text-left hover:border-charge/50 hover:bg-charge-soft/40 transition-colors">
+          <button onClick={() => inputRef.current?.click()} className="w-full flex items-center gap-3 p-3 rounded-2xl border border-line text-left hover:border-charge/50 hover:bg-charge-soft transition-colors">
             <span className="w-14 h-14 rounded-xl bg-mist flex items-center justify-center shrink-0"><Camera className="w-6 h-6 text-ink-faint" /></span>
             <span><span className="font-bold text-ink block text-sm">Upload your own</span><span className="text-xs text-ink-faint">From your device</span></span>
           </button>
@@ -262,22 +369,26 @@ function PhotoChooser({ libraryImage, onPickUpload, onUseLibrary, onCancel }) {
   );
 }
 
-function BigPhoto({ image, onPick, readOnly, libraryImage }) {
+// variant "hero" = full-width square, used in modals. variant "thumb" =
+// small fixed-size square, used in the compact exercise-list card.
+function BigPhoto({ image, onPick, readOnly, libraryImage, variant = "hero" }) {
   const inputRef = useRef(null);
   const [chooserOpen, setChooserOpen] = useState(false);
   const handleTap = () => { if (libraryImage) setChooserOpen(true); else inputRef.current?.click(); };
+  const sizeClass = variant === "thumb" ? "w-24 h-24 sm:w-28 sm:h-28 shrink-0 rounded-2xl" : "w-full aspect-square rounded-t-2xl";
   return (
     <>
       <button type="button" disabled={readOnly} onClick={handleTap}
-        className="relative w-full aspect-square rounded-t-3xl overflow-hidden bg-mist flex items-center justify-center group">
+        className={`relative overflow-hidden bg-mist flex items-center justify-center group ${sizeClass}`}>
         {image ? <img src={image} alt="" className="w-full h-full object-cover" /> : (
-          <div className="flex flex-col items-center gap-1.5 text-ink-faint">
-            <Camera className="w-8 h-8" /><span className="text-sm font-semibold">{readOnly ? "No photo" : "Add photo"}</span>
+          <div className={`flex flex-col items-center text-ink-faint ${variant === "thumb" ? "gap-0.5" : "gap-1.5"}`}>
+            <Camera className={variant === "thumb" ? "w-5 h-5" : "w-8 h-8"} />
+            {variant !== "thumb" && <span className="text-sm font-semibold">{readOnly ? "No photo" : "Add photo"}</span>}
           </div>
         )}
         {!readOnly && (
-          <span className="absolute inset-0 bg-ink/0 group-hover:bg-ink/30 active:bg-ink/30 transition-colors flex items-center justify-center">
-            <Pencil className="w-6 h-6 text-white opacity-0 group-hover:opacity-100 group-active:opacity-100 transition-opacity" />
+          <span className="absolute inset-0 bg-ink/0 group-hover:bg-ink/40 active:bg-ink/40 transition-colors flex items-center justify-center">
+            <Pencil className={`text-white opacity-0 group-hover:opacity-100 group-active:opacity-100 transition-opacity ${variant === "thumb" ? "w-4 h-4" : "w-6 h-6"}`} />
           </span>
         )}
       </button>
@@ -294,9 +405,6 @@ function BigPhoto({ image, onPick, readOnly, libraryImage }) {
   );
 }
 
-function Field({ label, children }) { return <div><label className="block text-sm font-bold text-ink-soft mb-1.5">{label}</label>{children}</div>; }
-const inputClass = "w-full rounded-2xl border border-line px-4 py-3.5 text-base bg-card focus:outline-none focus:ring-2 focus:ring-charge focus:border-charge transition-shadow";
-const sheetClass = "bg-card w-full sm:max-w-md sm:rounded-3xl rounded-t-3xl max-h-[92vh] overflow-y-auto shadow-2xl";
 function parseYoutubeId(url) {
   if (!url) return null;
   const m = url.match(/(?:youtu\.be\/|youtube\.com\/(?:watch\?v=|embed\/|shorts\/))([\w-]{11})/);
@@ -316,7 +424,7 @@ function ExerciseModal({ initial, onCancel, onSave, title }) {
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-ink/50 backdrop-blur-[2px]" onClick={onCancel}>
+    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/60 backdrop-blur-[2px]" onClick={onCancel}>
       <div className={sheetClass} onClick={(e) => e.stopPropagation()}>
         <div className="sticky top-0 bg-card flex items-center justify-between px-5 py-4 border-b border-line z-10">
           <h2 className="text-xl font-black text-ink font-display">{title}</h2>
@@ -325,7 +433,7 @@ function ExerciseModal({ initial, onCancel, onSave, title }) {
         <BigPhoto image={form.image} onPick={(img) => setForm((f) => ({ ...f, image: img }))} libraryImage={match?.image} />
         {(form.videoId || match?.youtubeId) && (
           <div className="px-5 pt-3">
-            <div className="aspect-video rounded-2xl overflow-hidden bg-ink">
+            <div className="aspect-video rounded-2xl overflow-hidden bg-mist">
               <iframe className="w-full h-full" src={youtubeEmbedUrl(form.videoId || match.youtubeId)} title="Exercise video" allowFullScreen />
             </div>
           </div>
@@ -361,7 +469,9 @@ function ExerciseModal({ initial, onCancel, onSave, title }) {
           <Field label="Weight">
             <div className="flex flex-wrap gap-2">
               {WEIGHT_OPTIONS.map((w) => (
-                <button key={w} type="button" onClick={() => setForm((f) => ({ ...f, weight: w }))} className={`px-3.5 py-2.5 rounded-full text-sm font-bold ring-1 transition ${form.weight === w ? `${WEIGHT_INFO[w].bg} ${WEIGHT_INFO[w].text} ${WEIGHT_INFO[w].ring}` : "bg-card text-ink-faint ring-line"}`}>{w}</button>
+                <button key={w} type="button" onClick={() => setForm((f) => ({ ...f, weight: w }))} className={`inline-flex items-center gap-1.5 px-3.5 py-2.5 rounded-full text-sm font-bold ring-1 transition ${form.weight === w ? `${WEIGHT_INFO[w].bg} ${WEIGHT_INFO[w].text} ${WEIGHT_INFO[w].ring}` : "bg-mist text-ink-faint ring-line"}`}>
+                  <PlateIcon weight={w} size={12} />{w}
+                </button>
               ))}
             </div>
           </Field>
@@ -371,8 +481,8 @@ function ExerciseModal({ initial, onCancel, onSave, title }) {
           </label>
         </div>
         <div className="sticky bottom-0 bg-card flex items-center gap-2 px-5 py-4 border-t border-line">
-          <button onClick={onCancel} className="flex-1 py-3.5 rounded-2xl text-base font-bold text-ink-soft hover:bg-mist">Cancel</button>
-          <button disabled={!canSave} onClick={() => canSave && onSave({ ...form, sets: Number(form.sets) || 1 })} className="flex-1 py-3.5 rounded-2xl text-base font-bold bg-charge text-white disabled:opacity-30 flex items-center justify-center gap-1.5 hover:bg-charge-strong transition-colors"><Check className="w-4 h-4" /> Save</button>
+          <button onClick={onCancel} className="flex-1 py-3.5 rounded-xl text-base font-bold text-ink-soft hover:bg-mist">Cancel</button>
+          <button disabled={!canSave} onClick={() => canSave && onSave({ ...form, sets: Number(form.sets) || 1 })} className="flex-1 py-3.5 rounded-xl text-base font-bold bg-charge text-paper disabled:opacity-30 flex items-center justify-center gap-1.5 hover:bg-charge-strong transition-colors"><Check className="w-4 h-4" /> Save</button>
         </div>
       </div>
     </div>
@@ -383,18 +493,18 @@ function DetailModal({ ex: item, onCancel }) {
   const match = findLibraryMatch(item.name);
   const videoId = item.videoId || match?.youtubeId;
   return (
-    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-ink/50 backdrop-blur-[2px]" onClick={onCancel}>
+    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/60 backdrop-blur-[2px]" onClick={onCancel}>
       <div className={sheetClass} onClick={(e) => e.stopPropagation()}>
         <div className="sticky top-0 bg-card flex items-center justify-between px-5 py-4 border-b border-line z-10">
           <h2 className="text-xl font-black text-ink font-display">{item.name}</h2>
           <button onClick={onCancel} className="p-2 -mr-2 rounded-full text-ink-faint hover:bg-mist"><X className="w-5 h-5" /></button>
         </div>
         {item.image ? <img src={item.image} alt="" className="w-full aspect-square object-cover" /> : (
-          <div className="w-full aspect-square bg-mist flex items-center justify-center"><Dumbbell className="w-10 h-10 text-ink-faint" /></div>
+          <div className="w-full aspect-[16/9] bg-mist flex items-center justify-center"><Dumbbell className="w-10 h-10 text-ink-faint" /></div>
         )}
         {videoId ? (
           <div className="px-5 pt-4">
-            <div className="aspect-video rounded-2xl overflow-hidden bg-ink">
+            <div className="aspect-video rounded-2xl overflow-hidden bg-mist">
               <iframe className="w-full h-full" src={youtubeEmbedUrl(videoId)} title="Exercise video" allowFullScreen />
             </div>
           </div>
@@ -405,7 +515,7 @@ function DetailModal({ ex: item, onCancel }) {
           <p className="text-ink-soft">{item.muscle}</p>
           <div className="flex flex-wrap items-center gap-2">
             <span className="inline-flex items-center gap-1.5 text-sm font-mono font-bold text-ink bg-mist rounded-full px-3 py-1.5"><Dumbbell className="w-3.5 h-3.5" /> {item.sets} sets · {item.reps}</span>
-            <WeightBadge weight={item.weight} size="lg" />
+            <PlateBadge weight={item.weight} size="lg" />
             <span className="inline-flex items-center gap-1 text-sm font-mono text-ink-faint"><Clock className="w-3.5 h-3.5" /> {item.rest}</span>
           </div>
         </div>
@@ -414,39 +524,43 @@ function DetailModal({ ex: item, onCancel }) {
   );
 }
 
+// Compact, horizontal card: thumbnail on the left, everything you need to
+// scan (name, muscle, plate color, sets/reps/rest) on the right — built
+// so a whole day's exercises are readable without a wall of full-width
+// photos to scroll past.
 function ExerciseCard({ ex: item, onOpenEdit, onDelete, onQuickPhoto, readOnly }) {
   const [detailOpen, setDetailOpen] = useState(false);
   return (
-    <div className={`rounded-3xl bg-card border overflow-hidden shadow-[0_1px_3px_rgba(21,23,26,0.06)] transition-shadow hover:shadow-[0_6px_20px_rgba(21,23,26,0.08)] ${item.focus ? "border-w2 ring-1 ring-w2-soft" : "border-line"}`}>
-      <div className="relative">
-        <BigPhoto image={item.image} onPick={onQuickPhoto} readOnly={readOnly} />
-        {item.focus && <span className="absolute top-3 left-3 inline-flex items-center gap-1 bg-w2-strong text-white text-xs font-bold px-2.5 py-1.5 rounded-full shadow"><Star className="w-3.5 h-3.5 fill-white" /> Focus</span>}
-        {!readOnly && (
-          <div className="absolute top-3 right-3 flex gap-1.5">
-            <button onClick={onOpenEdit} className="p-2.5 rounded-full bg-white/95 text-ink-soft hover:text-ink shadow" aria-label="Edit"><Pencil className="w-4 h-4" /></button>
-            <button onClick={onDelete} className="p-2.5 rounded-full bg-white/95 text-ink-soft hover:text-danger shadow" aria-label="Delete"><Trash2 className="w-4 h-4" /></button>
+    <div className={`rounded-2xl bg-card border overflow-hidden transition-colors ${item.focus ? "border-charge/40" : "border-line"}`}>
+      <div className="flex gap-3 p-3">
+        <div className="relative">
+          <BigPhoto image={item.image} onPick={onQuickPhoto} readOnly={readOnly} variant="thumb" />
+          {item.focus && (
+            <span className="absolute -top-1.5 -left-1.5 inline-flex items-center justify-center w-5 h-5 rounded-full bg-charge text-paper shadow" title="Focus muscle">
+              <Star className="w-3 h-3 fill-ink" />
+            </span>
+          )}
+        </div>
+        <div className="flex-1 min-w-0 flex flex-col">
+          <div className="flex items-start justify-between gap-1.5">
+            <button type="button" onClick={() => setDetailOpen(true)} className="text-left min-w-0 flex-1">
+              <h3 className="font-black text-ink text-[15px] leading-snug line-clamp-2">{item.name}</h3>
+              <p className="text-xs text-ink-faint truncate mt-0.5">{item.muscle}</p>
+            </button>
+            {!readOnly && (
+              <div className="flex gap-0.5 shrink-0 -mr-1.5 -mt-1">
+                <button onClick={onOpenEdit} className="p-2 rounded-full text-ink-faint hover:text-ink hover:bg-mist" aria-label="Edit"><Pencil className="w-3.5 h-3.5" /></button>
+                <button onClick={onDelete} className="p-2 rounded-full text-ink-faint hover:text-danger hover:bg-mist" aria-label="Delete"><Trash2 className="w-3.5 h-3.5" /></button>
+              </div>
+            )}
           </div>
-        )}
-      </div>
-      <button type="button" onClick={() => setDetailOpen(true)} className="p-4 text-left w-full">
-        <h3 className="font-black text-ink text-lg leading-snug">{item.name}</h3>
-        <p className="text-sm text-ink-faint mb-3">{item.muscle}</p>
-        <div className="grid grid-cols-3 gap-2 mb-3">
-          <div className="bg-paper rounded-xl px-2 py-2.5 text-center">
-            <div className="text-[10px] font-bold uppercase text-ink-faint tracking-wide">Sets</div>
-            <div className="text-lg font-black text-ink font-mono">{item.sets}</div>
-          </div>
-          <div className="bg-paper rounded-xl px-2 py-2.5 text-center">
-            <div className="text-[10px] font-bold uppercase text-ink-faint tracking-wide">Reps</div>
-            <div className="text-lg font-black text-ink font-mono">{item.reps}</div>
-          </div>
-          <div className="bg-paper rounded-xl px-2 py-2.5 text-center">
-            <div className="text-[10px] font-bold uppercase text-ink-faint tracking-wide">Rest</div>
-            <div className="text-base font-black text-ink font-mono">{item.rest}</div>
+          <div className="mt-auto pt-2 flex flex-wrap items-center gap-1.5">
+            <PlateBadge weight={item.weight} />
+            <span className="inline-flex items-center gap-1 text-xs font-mono font-bold text-ink-soft bg-mist rounded-full px-2.5 py-1">{item.sets} × {item.reps}</span>
+            <span className="inline-flex items-center gap-1 text-xs font-mono text-ink-faint"><Clock className="w-3 h-3" /> {item.rest}</span>
           </div>
         </div>
-        <WeightBadge weight={item.weight} size="lg" />
-      </button>
+      </div>
       {detailOpen && <DetailModal ex={item} onCancel={() => setDetailOpen(false)} />}
     </div>
   );
@@ -459,7 +573,7 @@ function ManageDaysModal({ days, onCancel, onSave }) {
   const add = () => setList((prev) => [...prev, { id: `day-${Date.now()}`, label: `Day ${prev.length + 1}`, title: "New day", tagline: "", exercises: [] }]);
 
   return (
-    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-ink/50 backdrop-blur-[2px]" onClick={onCancel}>
+    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/60 backdrop-blur-[2px]" onClick={onCancel}>
       <div className={sheetClass} onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center justify-between px-5 py-4 border-b border-line">
           <div>
@@ -470,9 +584,9 @@ function ManageDaysModal({ days, onCancel, onSave }) {
         </div>
         <div className="p-5 space-y-3">
           {list.map((d, i) => (
-            <div key={d.id} className="rounded-2xl border border-line p-4 space-y-2.5 bg-paper">
+            <div key={d.id} className="rounded-2xl border border-line p-4 space-y-2.5 bg-mist">
               <div className="flex items-center gap-2">
-                <span className="shrink-0 w-7 h-7 rounded-full bg-ink text-white text-xs font-black font-mono flex items-center justify-center">{i + 1}</span>
+                <span className="shrink-0 w-7 h-7 rounded-full bg-charge text-paper text-xs font-black font-mono flex items-center justify-center">{i + 1}</span>
                 <input value={d.title} onChange={(e) => update(d.id, "title", e.target.value)} placeholder="Day title" className="flex-1 rounded-xl border border-line bg-card px-3 py-2.5 text-sm font-bold focus:outline-none focus:ring-2 focus:ring-charge" />
                 <button onClick={() => remove(d.id)} disabled={list.length <= 1} className="p-2.5 rounded-xl text-ink-faint hover:text-danger hover:bg-danger-soft disabled:opacity-20 transition-colors"><Trash2 className="w-4 h-4" /></button>
               </div>
@@ -483,8 +597,8 @@ function ManageDaysModal({ days, onCancel, onSave }) {
           <button onClick={add} className="w-full rounded-2xl border-2 border-dashed border-line py-3.5 text-sm font-bold text-ink-faint hover:border-charge hover:text-charge transition-colors flex items-center justify-center gap-1.5"><Plus className="w-4 h-4" /> Add a day</button>
         </div>
         <div className="sticky bottom-0 bg-card flex items-center gap-2 px-5 py-4 border-t border-line">
-          <button onClick={onCancel} className="flex-1 py-3.5 rounded-2xl text-base font-bold text-ink-soft hover:bg-mist">Cancel</button>
-          <button onClick={() => onSave(list.map((d, i) => ({ ...d, label: `Day ${i + 1}` })))} className="flex-1 py-3.5 rounded-2xl text-base font-bold bg-charge text-white hover:bg-charge-strong transition-colors flex items-center justify-center gap-1.5"><Check className="w-4 h-4" /> Save</button>
+          <button onClick={onCancel} className="flex-1 py-3.5 rounded-xl text-base font-bold text-ink-soft hover:bg-mist">Cancel</button>
+          <button onClick={() => onSave(list.map((d, i) => ({ ...d, label: `Day ${i + 1}` })))} className="flex-1 py-3.5 rounded-xl text-base font-bold bg-charge text-paper hover:bg-charge-strong transition-colors flex items-center justify-center gap-1.5"><Check className="w-4 h-4" /> Save</button>
         </div>
       </div>
     </div>
@@ -495,7 +609,7 @@ function NewPlanModal({ onCancel, onCreate }) {
   const [name, setName] = useState("");
   const [levelId, setLevelId] = useState("established");
   return (
-    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-ink/50 backdrop-blur-[2px]" onClick={onCancel}>
+    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/60 backdrop-blur-[2px]" onClick={onCancel}>
       <div className={sheetClass} onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center justify-between px-5 py-4 border-b border-line">
           <h2 className="text-xl font-black text-ink font-display">New plan</h2>
@@ -506,7 +620,7 @@ function NewPlanModal({ onCancel, onCreate }) {
           <Field label="Starting point">
             <div className="space-y-2">
               {LEVELS.map((l) => (
-                <button key={l.id} type="button" onClick={() => setLevelId(l.id)} className={`w-full text-left rounded-2xl border p-4 transition ${levelId === l.id ? "border-charge bg-charge-soft" : "border-line bg-card"}`}>
+                <button key={l.id} type="button" onClick={() => setLevelId(l.id)} className={`w-full text-left rounded-2xl border p-4 transition ${levelId === l.id ? "border-charge bg-charge-soft" : "border-line bg-mist"}`}>
                   <div className="flex items-center gap-2">
                     <span className={`w-4 h-4 rounded-full border-2 flex items-center justify-center shrink-0 ${levelId === l.id ? "border-charge" : "border-line"}`}>{levelId === l.id && <span className="w-2 h-2 rounded-full bg-charge" />}</span>
                     <span className="font-bold text-ink text-base">{l.name}</span>
@@ -519,8 +633,8 @@ function NewPlanModal({ onCancel, onCreate }) {
           </Field>
         </div>
         <div className="sticky bottom-0 bg-card flex items-center gap-2 px-5 py-4 border-t border-line">
-          <button onClick={onCancel} className="flex-1 py-3.5 rounded-2xl text-base font-bold text-ink-soft hover:bg-mist">Cancel</button>
-          <button disabled={!name.trim()} onClick={() => onCreate(name.trim(), levelId)} className="flex-1 py-3.5 rounded-2xl text-base font-bold bg-charge text-white disabled:opacity-30 hover:bg-charge-strong transition-colors flex items-center justify-center gap-1.5"><Plus className="w-4 h-4" /> Create</button>
+          <button onClick={onCancel} className="flex-1 py-3.5 rounded-xl text-base font-bold text-ink-soft hover:bg-mist">Cancel</button>
+          <button disabled={!name.trim()} onClick={() => onCreate(name.trim(), levelId)} className="flex-1 py-3.5 rounded-xl text-base font-bold bg-charge text-paper disabled:opacity-30 hover:bg-charge-strong transition-colors flex items-center justify-center gap-1.5"><Plus className="w-4 h-4" /> Create</button>
         </div>
       </div>
     </div>
@@ -532,7 +646,7 @@ function NameModal({ onSave }) {
   const [family, setFamily] = useState("");
   const canSave = first.trim().length > 0 && family.trim().length > 0;
   return (
-    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-ink/50 backdrop-blur-[2px]">
+    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/60 backdrop-blur-[2px]">
       <div className={sheetClass}>
         <div className="px-5 py-4 border-b border-line">
           <h2 className="text-xl font-black text-ink font-display">Finish your profile</h2>
@@ -543,7 +657,7 @@ function NameModal({ onSave }) {
           <Field label="Family name (اللقب)"><input value={family} onChange={(e) => setFamily(e.target.value)} className={inputClass} /></Field>
         </div>
         <div className="px-5 pb-5">
-          <button disabled={!canSave} onClick={() => onSave(first.trim(), family.trim())} className="w-full py-3.5 rounded-2xl text-base font-bold bg-charge text-white disabled:opacity-30 hover:bg-charge-strong transition-colors">Continue</button>
+          <button disabled={!canSave} onClick={() => onSave(first.trim(), family.trim())} className="w-full py-3.5 rounded-xl text-base font-bold bg-charge text-paper disabled:opacity-30 hover:bg-charge-strong transition-colors">Continue</button>
         </div>
       </div>
     </div>
@@ -553,7 +667,7 @@ function NameModal({ onSave }) {
 function ProfileModal({ user, onCancel, onSignIn, onUpgrade, onSignOut, status, error }) {
   const anon = user && user.isAnonymous;
   return (
-    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-ink/50 backdrop-blur-[2px]" onClick={onCancel}>
+    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/60 backdrop-blur-[2px]" onClick={onCancel}>
       <div className={sheetClass} onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center justify-between px-5 py-4 border-b border-line">
           <h2 className="text-xl font-black text-ink font-display flex items-center gap-2"><Cloud className="w-5 h-5" /> Profile</h2>
@@ -562,16 +676,16 @@ function ProfileModal({ user, onCancel, onSignIn, onUpgrade, onSignOut, status, 
         <div className="p-5 space-y-4">
           {user && !anon ? (
             <div className="space-y-3">
-              <div className="rounded-2xl bg-charge-soft border border-charge/20 p-4 text-sm text-charge-strong flex items-center gap-2">
+              <div className="rounded-2xl bg-charge-soft border border-charge/20 p-4 text-sm text-charge flex items-center gap-2">
                 <Check className="w-4 h-4 shrink-0" /> Signed in as <span className="font-bold">{user.displayName}</span>. Plans sync automatically.
               </div>
-              <button onClick={onSignOut} className="w-full py-3.5 rounded-2xl text-base font-bold text-danger border border-danger/30 hover:bg-danger-soft">Sign out</button>
+              <button onClick={onSignOut} className="w-full py-3.5 rounded-xl text-base font-bold text-danger border border-danger/30 hover:bg-danger-soft">Sign out</button>
             </div>
           ) : (
             <>
               <p className="text-base text-ink-soft">{anon ? "You're trying the app — nothing saves permanently yet. Sign in to keep everything you've built and unlock editing, new plans, and submissions." : "One tap, no password. This is your identity for plans, sync, and submissions."}</p>
-              {error && <div className="rounded-2xl bg-danger-soft border border-danger/20 p-3.5 text-sm text-danger flex items-start gap-2"><AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" /> Couldn't sign in — try again.</div>}
-              <button disabled={status === "syncing"} onClick={anon ? onUpgrade : onSignIn} className="w-full py-3.5 rounded-2xl text-base font-bold bg-charge text-white disabled:opacity-30 hover:bg-charge-strong transition-colors flex items-center justify-center gap-1.5">
+              {error && <div className="rounded-2xl bg-danger-soft border border-danger/20 p-3.5 text-sm text-danger flex items-start gap-2"><AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" /> {typeof error === "string" ? error : "Couldn't sign in — try again."}</div>}
+              <button disabled={status === "syncing"} onClick={anon ? onUpgrade : onSignIn} className="w-full py-3.5 rounded-xl text-base font-bold bg-charge text-paper disabled:opacity-30 hover:bg-charge-strong transition-colors flex items-center justify-center gap-1.5">
                 {status === "syncing" ? <><Loader2 className="w-4 h-4 animate-spin" /> Signing in…</> : "Continue with Google"}
               </button>
             </>
@@ -582,34 +696,144 @@ function ProfileModal({ user, onCancel, onSignIn, onUpgrade, onSignOut, status, 
   );
 }
 
-function SubmitModal({ plan, user, onCancel }) {
-  const [state, setState] = useState("idle");
-  const submit = async () => {
-    setState("sending");
-    try { await submitPlanForReview(plan, user.uid, user.displayName); setState("sent"); } catch (err) { setState("error"); }
+function ShareModal({ plan, user, onCancel, onPatchPlan }) {
+  const [pubState, setPubState] = useState(plan.publicSubmitted ? "sent" : "idle");
+  const [codeState, setCodeState] = useState("idle");
+  const [copied, setCopied] = useState(false);
+
+  const submitPublic = async () => {
+    setPubState("sending");
+    try { await submitPlanForReview(plan, user.uid, user.displayName); onPatchPlan({ publicSubmitted: true }); setPubState("sent"); }
+    catch (err) { setPubState("error"); }
   };
+
+  const generateCode = async () => {
+    setCodeState("sending");
+    try { const code = await shareplanByCode(plan, user.uid, user.displayName); onPatchPlan({ shareCode: code }); setCodeState("idle"); }
+    catch (err) { setCodeState("error"); }
+  };
+  const revokeCode = async () => {
+    if (!plan.shareCode) return;
+    setCodeState("sending");
+    try { await stopSharingPlan(plan.shareCode); onPatchPlan({ shareCode: null }); setCodeState("idle"); }
+    catch (err) { setCodeState("error"); }
+  };
+  const copyCode = () => { navigator.clipboard?.writeText(plan.shareCode).then(() => { setCopied(true); setTimeout(() => setCopied(false), 1500); }); };
+
   return (
-    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-ink/50 backdrop-blur-[2px]" onClick={onCancel}>
+    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/60 backdrop-blur-[2px]" onClick={onCancel}>
       <div className={sheetClass} onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center justify-between px-5 py-4 border-b border-line">
-          <h2 className="text-xl font-black text-ink font-display flex items-center gap-2"><Send className="w-5 h-5" /> Submit for pinning</h2>
+          <h2 className="text-xl font-black text-ink font-display flex items-center gap-2"><Send className="w-5 h-5" /> Share "{plan.name}"</h2>
           <button onClick={onCancel} className="p-2 -mr-2 rounded-full text-ink-faint hover:bg-mist"><X className="w-5 h-5" /></button>
         </div>
-        <div className="p-5 space-y-4">
-          {state === "sent" ? (
-            <div className="rounded-2xl bg-charge-soft border border-charge/20 p-4 text-sm text-charge-strong flex items-center gap-2"><Check className="w-4 h-4 shrink-0" /> Sent — it'll appear in Community once approved.</div>
-          ) : (
-            <>
-              <p className="text-base text-ink-soft">Sends "{plan.name}" for review. Photos aren't included, just the exercise list.</p>
-              {state === "error" && <p className="text-sm text-danger">Something went wrong — try again.</p>}
-              <button disabled={state === "sending"} onClick={submit} className="w-full py-3.5 rounded-2xl text-base font-bold bg-charge text-white disabled:opacity-30 hover:bg-charge-strong transition-colors flex items-center justify-center gap-1.5">
-                {state === "sending" ? <><Loader2 className="w-4 h-4 animate-spin" /> Sending…</> : <><Send className="w-4 h-4" /> Submit</>}
+        <div className="p-5 space-y-5">
+
+          <div className="rounded-2xl border border-line p-4">
+            <p className="font-bold text-ink text-sm mb-1">Share with specific people</p>
+            <p className="text-xs text-ink-faint mb-3">Generates a code. Only people you give it to can add this plan — it's not listed anywhere.</p>
+            {plan.shareCode ? (
+              <>
+                <div className="flex items-center gap-2 mb-2">
+                  <span className="flex-1 font-mono font-black text-2xl tracking-[0.2em] text-charge bg-charge-soft rounded-xl px-4 py-2.5 text-center">{plan.shareCode}</span>
+                  <button onClick={copyCode} className="p-3 rounded-xl bg-mist text-ink-soft hover:text-ink shrink-0"><Copy className="w-4 h-4" /></button>
+                </div>
+                {copied && <p className="text-xs text-charge mb-2">Copied.</p>}
+                <button disabled={codeState === "sending"} onClick={revokeCode} className="text-sm font-bold text-danger disabled:opacity-40">Stop sharing</button>
+              </>
+            ) : (
+              <button disabled={codeState === "sending"} onClick={generateCode} className="w-full py-3 rounded-xl text-sm font-bold bg-mist text-ink hover:bg-line/60 disabled:opacity-40 transition-colors">
+                {codeState === "sending" ? "Generating…" : "Generate a code"}
               </button>
-            </>
-          )}
+            )}
+            {codeState === "error" && <p className="text-xs text-danger mt-2">Something went wrong — try again.</p>}
+          </div>
+
+          <div className="rounded-2xl border border-line p-4">
+            <p className="font-bold text-ink text-sm mb-1">Submit to Community</p>
+            <p className="text-xs text-ink-faint mb-3">Sends "{plan.name}" for review. Visible to everyone once approved. Photos aren't included, just the exercise list.</p>
+            {pubState === "sent" ? (
+              <div className="rounded-xl bg-charge-soft border border-charge/20 p-3 text-sm text-charge flex items-center gap-2"><Check className="w-4 h-4 shrink-0" /> Sent — appears in Community once approved.</div>
+            ) : (
+              <>
+                {pubState === "error" && <p className="text-xs text-danger mb-2">Something went wrong — try again.</p>}
+                <button disabled={pubState === "sending"} onClick={submitPublic} className="w-full py-3 rounded-xl text-sm font-bold bg-mist text-ink hover:bg-line/60 disabled:opacity-40 transition-colors">
+                  {pubState === "sending" ? "Sending…" : "Submit for review"}
+                </button>
+              </>
+            )}
+          </div>
+
         </div>
       </div>
     </div>
+  );
+}
+
+function JoinSharedPlanCard({ onJoin }) {
+  const [code, setCode] = useState("");
+  const [state, setState] = useState("idle");
+  const submit = async () => {
+    if (!code.trim()) return;
+    setState("loading");
+    try {
+      const found = await fetchPlanByCode(code);
+      if (!found) { setState("notfound"); return; }
+      onJoin(found);
+      setCode(""); setState("idle");
+    } catch (err) { setState("error"); }
+  };
+  return (
+    <div className="rounded-2xl border border-dashed border-line p-4">
+      <p className="font-bold text-ink text-sm mb-1">Have a share code?</p>
+      <div className="flex gap-2 mt-2">
+        <input value={code} onChange={(e) => { setCode(e.target.value.toUpperCase()); setState("idle"); }} placeholder="e.g. 7QK4RM" maxLength={6} className="flex-1 rounded-xl border border-line px-3 py-2.5 text-sm font-mono font-bold tracking-widest bg-mist text-ink placeholder:text-ink-faint placeholder:tracking-normal placeholder:font-normal focus:outline-none focus:ring-2 focus:ring-charge" />
+        <button disabled={state === "loading" || !code.trim()} onClick={submit} className="px-4 py-2.5 rounded-xl text-sm font-bold bg-charge text-paper disabled:opacity-30 hover:bg-charge-strong transition-colors">Add</button>
+      </div>
+      {state === "notfound" && <p className="text-xs text-danger mt-2">No plan found for that code.</p>}
+      {state === "error" && <p className="text-xs text-danger mt-2">Something went wrong — try again.</p>}
+    </div>
+  );
+}
+
+// Admin-only moderation queue for plans submitted to Community. The real
+// gate is Firestore Security Rules (see firestore.rules) — this UI simply
+// doesn't render for anyone not in ADMIN_UIDS, and every action it takes
+// still goes through rules on the way to the server.
+function AdminPanel({ user }) {
+  const [items, setItems] = useState(null);
+  const [busyId, setBusyId] = useState(null);
+  const [copied, setCopied] = useState(false);
+  const load = async () => { setItems(null); try { setItems(await fetchPendingSubmissions()); } catch (err) { setItems([]); } };
+  useEffect(() => { load(); }, []);
+  const approve = async (id) => { setBusyId(id); try { await adminSetApproved(id, true); } catch (err) { /* ignore */ } await load(); setBusyId(null); };
+  const reject = async (id) => { setBusyId(id); try { await adminDeleteSharedPlan(id); } catch (err) { /* ignore */ } await load(); setBusyId(null); };
+  const copyUid = () => { navigator.clipboard?.writeText(user.uid).then(() => { setCopied(true); setTimeout(() => setCopied(false), 1500); }); };
+
+  return (
+    <section>
+      <h2 className="text-[11px] font-bold uppercase tracking-[0.14em] text-ink-faint mb-2.5">Admin tools</h2>
+      <button onClick={copyUid} className="w-full flex items-center justify-between gap-2 bg-card border border-line rounded-2xl px-4 py-3.5 mb-2 hover:border-ink-faint transition-colors">
+        <span className="text-left"><span className="font-bold text-ink text-sm block">Your user ID</span><span className="text-xs text-ink-faint font-mono">{user.uid}</span></span>
+        <span className="shrink-0 text-xs font-bold text-charge">{copied ? "Copied" : "Copy"}</span>
+      </button>
+      <div className="rounded-2xl border border-line bg-card p-4">
+        <p className="text-xs font-bold text-ink-faint uppercase tracking-wide mb-3">Pending Community submissions</p>
+        {items === null && <p className="text-sm text-ink-faint flex items-center gap-2"><Loader2 className="w-4 h-4 animate-spin" /> Loading…</p>}
+        {items?.length === 0 && <p className="text-sm text-ink-faint">Nothing waiting on review.</p>}
+        <div className="space-y-2">
+          {items?.map((p) => (
+            <div key={p.id} className="rounded-xl bg-mist p-3 flex items-center justify-between gap-2">
+              <div className="min-w-0"><p className="font-bold text-sm text-ink truncate">{p.name}</p><p className="text-xs text-ink-faint">by {p.author || "anonymous"} · {p.days?.length || 0} days/wk</p></div>
+              <div className="flex gap-1.5 shrink-0">
+                <button disabled={busyId === p.id} onClick={() => approve(p.id)} className="p-2 rounded-lg bg-charge-soft text-charge disabled:opacity-40" aria-label="Approve"><Check className="w-4 h-4" /></button>
+                <button disabled={busyId === p.id} onClick={() => reject(p.id)} className="p-2 rounded-lg bg-danger-soft text-danger disabled:opacity-40" aria-label="Reject"><X className="w-4 h-4" /></button>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    </section>
   );
 }
 
@@ -638,13 +862,12 @@ function CommunityPage({ onFork, isOnline }) {
             <p className="font-black text-ink truncate">{p.name}</p>
             <p className="text-sm text-ink-faint">by {p.author || "anonymous"} · {p.days?.length || 0} days/wk</p>
           </div>
-          <button onClick={() => onFork(p)} className="shrink-0 px-3.5 py-2.5 rounded-xl text-sm font-bold bg-charge text-white hover:bg-charge-strong transition-colors flex items-center gap-1.5"><Copy className="w-4 h-4" /> Copy</button>
+          <button onClick={() => onFork(p)} className="shrink-0 px-3.5 py-2.5 rounded-xl text-sm font-bold bg-charge text-paper hover:bg-charge-strong transition-colors flex items-center gap-1.5"><Copy className="w-4 h-4" /> Copy</button>
         </div>
       ))}
     </div>
   );
 }
-
 
 function AuthStep({ onGoogle, onGuest, onEmailAuth, status, error }) {
   const [mode, setMode] = useState("choice"); // choice | email
@@ -662,7 +885,7 @@ function AuthStep({ onGoogle, onGuest, onEmailAuth, status, error }) {
           <input type="password" placeholder="Password" value={pw} onChange={(e) => setPw(e.target.value)} className={inputClass} />
         </div>
         {error && <p className="text-danger text-sm mb-3">{error}</p>}
-        <button disabled={status === "syncing" || !email || !pw} onClick={() => onEmailAuth(email, pw, isSignUp)} className="w-full py-3.5 rounded-2xl text-base font-bold bg-charge text-white disabled:opacity-30 mb-3 hover:bg-charge-strong transition-colors">
+        <button disabled={status === "syncing" || !email || !pw} onClick={() => onEmailAuth(email, pw, isSignUp)} className="w-full py-3.5 rounded-xl text-base font-bold bg-charge text-paper disabled:opacity-30 mb-3 hover:bg-charge-strong transition-colors">
           {status === "syncing" ? "…" : isSignUp ? "Create account" : "Sign in"}
         </button>
         <button onClick={() => setIsSignUp((v) => !v)} className="text-sm font-bold text-ink-faint mb-2">{isSignUp ? "Already have an account? Sign in" : "New here? Create an account"}</button>
@@ -673,12 +896,12 @@ function AuthStep({ onGoogle, onGuest, onEmailAuth, status, error }) {
 
   return (
     <div className="flex-1 flex flex-col justify-center px-8 max-w-sm mx-auto w-full text-center">
-      <div className="w-16 h-16 rounded-2xl bg-charge mx-auto mb-5 flex items-center justify-center shadow-lg shadow-charge/20"><Dumbbell className="w-8 h-8 text-white" /></div>
+      <BrandMark className="mx-auto mb-5" />
       <h1 className="text-3xl font-black text-ink font-display mb-1">Training log</h1>
       <p className="text-ink-faint mb-8">Create a profile to save your plans and progress.</p>
       {error && <p className="text-danger text-sm mb-3">{error}</p>}
-      <button disabled={status === "syncing"} onClick={onGoogle} className="w-full py-3.5 rounded-2xl text-base font-bold bg-charge text-white mb-2.5 disabled:opacity-30 hover:bg-charge-strong transition-colors">Continue with Google</button>
-      <button disabled={status === "syncing"} onClick={() => setMode("email")} className="w-full py-3.5 rounded-2xl text-base font-bold bg-card border border-line text-ink mb-2.5 disabled:opacity-30 hover:bg-mist transition-colors">Continue with email</button>
+      <button disabled={status === "syncing"} onClick={onGoogle} className="w-full py-3.5 rounded-xl text-base font-bold bg-charge text-paper mb-2.5 disabled:opacity-30 hover:bg-charge-strong transition-colors">Continue with Google</button>
+      <button disabled={status === "syncing"} onClick={() => setMode("email")} className="w-full py-3.5 rounded-xl text-base font-bold bg-card border border-line text-ink mb-2.5 disabled:opacity-30 hover:bg-mist transition-colors">Continue with email</button>
       <button disabled={status === "syncing"} onClick={onGuest} className="w-full py-3 text-sm font-bold text-ink-faint disabled:opacity-30">Try it first, no account</button>
     </div>
   );
@@ -686,10 +909,10 @@ function AuthStep({ onGoogle, onGuest, onEmailAuth, status, error }) {
 
 function TutorialStep({ onDone }) {
   const slides = [
-    { icon: Star, color: "text-w2-strong fill-w2", bg: "bg-w2-soft", title: "Focus muscles", text: "A star marks a focus muscle — that's where extra volume goes on purpose." },
-    { icon: Flame, color: "text-w4-strong", bg: "bg-w4-soft", title: "Weight, made simple", text: "Weight means the load where your last rep is the last one you can do with good form. A color strip up top reminds you any time." },
+    { icon: Star, color: "text-charge fill-charge", bg: "bg-charge-soft", title: "Focus muscles", text: "A star marks a focus muscle — that's where extra volume goes on purpose." },
+    { icon: Dumbbell, color: "text-w4-strong", bg: "bg-w4-soft", title: "Plate colors, made simple", text: "Weight means the load where your last rep is the last one you can do with good form. Plate colors up top remind you any time." },
     { icon: RefreshCw, color: "text-w5-strong", bg: "bg-w5-soft", title: "Built-in progression", text: "Around week 6-8 you'll get a nudge to rotate 1-2 exercises per muscle — research-backed, not random switching." },
-    { icon: Home, color: "text-charge-strong", bg: "bg-charge-soft", title: "Guided sessions", text: "Hit \"Start workout\" for a full guided session — warm-up, set tracking, rest timers, all handled for you." },
+    { icon: Home, color: "text-w2-strong", bg: "bg-w2-soft", title: "Guided sessions", text: "Hit \"Start workout\" for a full guided session — warm-up, set tracking, rest timers, all handled for you." },
   ];
   const [i, setI] = useState(0);
   const slide = slides[i];
@@ -705,8 +928,8 @@ function TutorialStep({ onDone }) {
         <p className="text-ink-soft text-base">{slide.text}</p>
       </div>
       <div className="px-8 pb-8 max-w-sm mx-auto w-full flex gap-2">
-        {i > 0 && <button onClick={() => setI((v) => v - 1)} className="px-6 py-3.5 rounded-2xl text-base font-bold text-ink-soft border border-line">Back</button>}
-        <button onClick={() => (i < slides.length - 1 ? setI((v) => v + 1) : onDone())} className="flex-1 py-3.5 rounded-2xl text-base font-bold bg-charge text-white hover:bg-charge-strong transition-colors">{i < slides.length - 1 ? "Next" : "Start using the app"}</button>
+        {i > 0 && <button onClick={() => setI((v) => v - 1)} className="px-6 py-3.5 rounded-xl text-base font-bold text-ink-soft border border-line">Back</button>}
+        <button onClick={() => (i < slides.length - 1 ? setI((v) => v + 1) : onDone())} className="flex-1 py-3.5 rounded-xl text-base font-bold bg-charge text-paper hover:bg-charge-strong transition-colors">{i < slides.length - 1 ? "Next" : "Start using the app"}</button>
       </div>
     </div>
   );
@@ -831,13 +1054,10 @@ function SessionStyles() {
 }
 
 // ---- Guided workout session ----
-// Redesigned around two fixes: (1) it now scales fluidly with clamp()-based
-// sizing instead of fixed pixel widths, so the "working set" screen reads
-// as a deliberate console on a phone AND a desktop instead of a tiny island
-// in a lot of empty space; (2) finishing the last set of an exercise no
-// longer stops on its own "exercise done" screen with a button — it
-// auto-advances straight into the next exercise's first set, with a small
-// toast confirming what just happened instead of an extra tap.
+// Full-screen focus mode. Uses the same dark surface as the rest of the
+// app (it no longer needs a special "always dark" trick now that the
+// whole app is dark) plus a plate-ring on the big tap button and
+// confetti in the actual plate colors when a day is finished.
 function WorkoutSession({ day, onExit }) {
   const WARMUP_SECONDS = 300;
   const [run, dispatch] = useReducer((s, action) => {
@@ -930,11 +1150,11 @@ function WorkoutSession({ day, onExit }) {
   const accent = isLoadPhase
     ? { label: phase === "work" ? "Working set" : "Rest", text: tier.accent, solid: tier.solid, hex: tier.hex }
     : phase === "stretch" || phase === "done"
-      ? { label: phase === "stretch" ? "Cool down" : "Complete", text: "text-charge", solid: "bg-charge", hex: "#1e9e5a" }
-      : { label: "Warm-up", text: "text-white", solid: "bg-white", hex: "#c7cbd1" };
+      ? { label: phase === "stretch" ? "Cool down" : "Complete", text: "text-charge", solid: "bg-charge", hex: "#d9a441" }
+      : { label: "Warm-up", text: "text-ink", solid: "bg-ink", hex: "#8a8578" };
 
   return (
-    <div className="fixed inset-0 z-50 bg-ink text-white flex flex-col overflow-hidden">
+    <div className="fixed inset-0 z-50 bg-paper text-ink flex flex-col overflow-hidden">
       <SessionStyles />
 
       <div
@@ -944,26 +1164,26 @@ function WorkoutSession({ day, onExit }) {
 
       {toast && (
         <div className="fixed top-4 inset-x-0 flex justify-center z-20 px-4 pointer-events-none">
-          <div className="tl-toast bg-charge text-white rounded-full pl-3 pr-4 py-2.5 text-sm font-bold shadow-lg flex items-center gap-2">
-            <span className="w-5 h-5 rounded-full bg-white/25 flex items-center justify-center shrink-0"><Check className="w-3 h-3" /></span>
+          <div className="tl-toast bg-charge text-paper rounded-full pl-3 pr-4 py-2.5 text-sm font-bold shadow-lg flex items-center gap-2">
+            <span className="w-5 h-5 rounded-full bg-ink/20 flex items-center justify-center shrink-0"><Check className="w-3 h-3" /></span>
             <span className="truncate max-w-[70vw]">{toast.done} done{toast.next ? ` — next: ${toast.next}` : ""}</span>
           </div>
         </div>
       )}
 
       <div className="relative flex items-center justify-between px-5 sm:px-8 pt-5 pb-2 max-w-2xl mx-auto w-full">
-        <button onClick={() => setConfirmExit(true)} className="p-2 -ml-2 rounded-full text-white/60 hover:text-white hover:bg-white/10"><X className="w-5 h-5" /></button>
+        <button onClick={() => setConfirmExit(true)} className="p-2 -ml-2 rounded-full text-ink/60 hover:text-ink hover:bg-ink/10"><X className="w-5 h-5" /></button>
         <div className="text-center">
           <p className={`text-xs font-bold uppercase tracking-widest ${accent.text}`}>{accent.label}</p>
-          <p className="text-white/40 text-xs font-mono">{fmtClock(elapsed)} elapsed</p>
+          <p className="text-ink/40 text-xs font-mono">{fmtClock(elapsed)} elapsed</p>
         </div>
-        <button onClick={toggleMuted} className="p-2 -mr-2 rounded-full text-white/60 hover:text-white hover:bg-white/10 w-9 h-9 flex items-center justify-center">{muted ? <VolumeX className="w-4 h-4" /> : <Volume2 className="w-4 h-4" />}</button>
+        <button onClick={toggleMuted} className="p-2 -mr-2 rounded-full text-ink/60 hover:text-ink hover:bg-ink/10 w-9 h-9 flex items-center justify-center">{muted ? <VolumeX className="w-4 h-4" /> : <Volume2 className="w-4 h-4" />}</button>
       </div>
 
       {isLoadPhase && (
         <div className="relative flex gap-1.5 px-5 sm:px-8 mb-2 max-w-2xl mx-auto w-full">
           {exercises.map((_, i) => (
-            <div key={i} className={`h-1.5 flex-1 rounded-full ${i < exIndex ? "bg-charge" : i === exIndex ? accent.solid : "bg-white/15"}`} />
+            <div key={i} className={`h-1.5 flex-1 rounded-full ${i < exIndex ? "bg-charge" : i === exIndex ? accent.solid : "bg-ink/15"}`} />
           ))}
         </div>
       )}
@@ -973,22 +1193,22 @@ function WorkoutSession({ day, onExit }) {
 
           {phase === "warmupChoice" && (
             <>
-              <div className="w-16 h-16 rounded-full bg-white/10 flex items-center justify-center mb-4"><Flame className="w-7 h-7 text-white/70" /></div>
+              <div className="w-16 h-16 rounded-full bg-ink/10 flex items-center justify-center mb-4"><Flame className="w-7 h-7 text-ink/70" /></div>
               <h2 className="text-xl font-black font-display mb-2">Warmed up already?</h2>
-              <p className="text-white/50 mb-6 max-w-xs text-sm">If not, warming up matters — 5 minutes minimum, no skipping once it starts.</p>
-              <button onClick={beginWarmupTimer} className="w-full max-w-xs px-8 py-3.5 rounded-2xl text-base font-black bg-white text-ink mb-2.5">I need to warm up</button>
-              <button onClick={skipWarmup} className="w-full max-w-xs px-8 py-3.5 rounded-2xl text-base font-black bg-white/10 text-white hover:bg-white/15 transition-colors">I already warmed up</button>
+              <p className="text-ink/50 mb-6 max-w-xs text-sm">If not, warming up matters — 5 minutes minimum, no skipping once it starts.</p>
+              <button onClick={beginWarmupTimer} className="w-full max-w-xs px-8 py-3.5 rounded-2xl text-base font-black bg-ink text-paper mb-2.5">I need to warm up</button>
+              <button onClick={skipWarmup} className="w-full max-w-xs px-8 py-3.5 rounded-2xl text-base font-black bg-ink/10 text-ink hover:bg-ink/15 transition-colors">I already warmed up</button>
             </>
           )}
 
           {phase === "warmup" && (
             <>
-              <p className="text-white/60 text-sm mb-2">Warm up before Day starts — this step is mandatory.</p>
+              <p className="text-ink/60 text-sm mb-2">Warm up before Day starts — this step is mandatory.</p>
               <div className="text-[clamp(3rem,11vw,5rem)] font-black font-mono mb-4 tabular-nums">{fmtClock(warmupLeft)}</div>
               <button
                 disabled={warmupLeft > 0}
                 onClick={completeWarmup}
-                className={`px-6 py-3.5 rounded-2xl text-base font-black transition-all relative ${warmupLeft > 0 ? "bg-white/10 text-white/40" : "bg-white text-ink tl-ring"}`}
+                className={`px-6 py-3.5 rounded-2xl text-base font-black transition-all relative ${warmupLeft > 0 ? "bg-ink/10 text-ink/40" : "bg-ink text-paper tl-ring"}`}
               >
                 {warmupLeft > 0 ? `Warming up… ${fmtClock(warmupLeft)} left` : "✓ Warm-up done — Start Day"}
               </button>
@@ -997,17 +1217,17 @@ function WorkoutSession({ day, onExit }) {
 
           {phase === "work" && currentEx && (
             <>
-              <p className="text-white/40 text-xs font-bold font-mono mb-1">Exercise {exIndex + 1} of {totalExercises}</p>
+              <p className="text-ink/40 text-xs font-bold font-mono mb-1">Exercise {exIndex + 1} of {totalExercises}</p>
               {currentEx.image
                 ? <img src={currentEx.image} alt="" className="w-[clamp(72px,14vw,104px)] h-[clamp(72px,14vw,104px)] rounded-2xl object-cover mb-3" />
-                : <div className="w-[clamp(72px,14vw,104px)] h-[clamp(72px,14vw,104px)] rounded-2xl bg-white/10 mb-3 flex items-center justify-center"><Dumbbell className="w-8 h-8 text-white/30" /></div>}
+                : <div className="w-[clamp(72px,14vw,104px)] h-[clamp(72px,14vw,104px)] rounded-2xl bg-ink/10 mb-3 flex items-center justify-center"><Dumbbell className="w-8 h-8 text-ink/30" /></div>}
               <h2 className="text-[clamp(1.25rem,4vw,1.75rem)] font-black font-display leading-tight mb-0.5">{currentEx.name}</h2>
-              <p className="text-white/50 text-sm mb-1">{currentEx.muscle}</p>
-              <p className="text-white/70 text-sm font-mono mb-5 flex items-center gap-2">{currentEx.reps} reps · <WeightBadge weight={currentEx.weight} /></p>
+              <p className="text-ink/50 text-sm mb-1">{currentEx.muscle}</p>
+              <p className="text-ink/70 text-sm font-mono mb-5 flex items-center gap-2">{currentEx.reps} reps · <PlateBadge weight={currentEx.weight} /></p>
 
               <div className="flex gap-2 mb-6 flex-wrap justify-center max-w-xs">
                 {Array.from({ length: currentEx.sets }).map((_, i) => (
-                  <div key={i} className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-black font-mono transition-all ${i < setsDone ? "bg-charge text-white" : "bg-white/10 text-white/30"} ${i === setsDone - 1 && popKey ? "tl-pop" : ""}`}>
+                  <div key={i} className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-black font-mono transition-all ${i < setsDone ? "bg-charge text-paper" : "bg-ink/10 text-ink/30"} ${i === setsDone - 1 && popKey ? "tl-pop" : ""}`}>
                     {i < setsDone ? <Check className="w-3.5 h-3.5" /> : i + 1}
                   </div>
                 ))}
@@ -1016,8 +1236,8 @@ function WorkoutSession({ day, onExit }) {
               <button
                 key={popKey}
                 onClick={completeSet}
-                style={{ width: "clamp(180px, 36vw, 260px)", height: "clamp(180px, 36vw, 260px)" }}
-                className={`rounded-full ${tier.solid} text-white flex flex-col items-center justify-center gap-1 shadow-2xl active:scale-95 transition-transform tl-ring relative`}
+                style={{ width: "clamp(180px, 36vw, 260px)", height: "clamp(180px, 36vw, 260px)", boxShadow: "inset 0 0 0 10px rgba(16,15,13,0.18), inset 0 0 0 12px rgba(242,238,228,0.10), 0 18px 40px rgba(0,0,0,0.45)" }}
+                className={`rounded-full ${tier.solid} text-white flex flex-col items-center justify-center gap-1 active:scale-95 transition-transform tl-ring relative`}
               >
                 <span className="text-[clamp(1.1rem,3vw,1.5rem)] font-black font-display">Set {setsDone + 1}</span>
                 <span className="text-sm font-bold opacity-75 font-mono">of {currentEx.sets}</span>
@@ -1028,41 +1248,41 @@ function WorkoutSession({ day, onExit }) {
 
           {phase === "rest" && currentEx && (
             <>
-              <p className="text-white/50 text-sm mb-2">Rest before set {setsDone + 1}</p>
+              <p className="text-ink/50 text-sm mb-2">Rest before set {setsDone + 1}</p>
               <div className={`text-[clamp(3rem,11vw,5rem)] font-black font-mono mb-4 tabular-nums ${accent.text}`}>{fmtClock(restLeft)}</div>
-              <p className="text-white/40 text-sm mb-6">{currentEx.name}</p>
-              <button onClick={skipRest} className="px-6 py-2.5 rounded-xl text-sm font-bold text-white/60 border border-white/20 hover:bg-white/10 transition-colors">Skip rest</button>
+              <p className="text-ink/40 text-sm mb-6">{currentEx.name}</p>
+              <button onClick={skipRest} className="px-6 py-2.5 rounded-xl text-sm font-bold text-ink/60 border border-ink/20 hover:bg-ink/10 transition-colors">Skip rest</button>
             </>
           )}
 
           {phase === "stretch" && (
             <>
               <h2 className="text-xl font-black font-display mb-1">Cool down</h2>
-              <p className="text-white/50 text-sm mb-4">Optional, but worth it for posture.</p>
+              <p className="text-ink/50 text-sm mb-4">Optional, but worth it for posture.</p>
               <div className="w-full max-w-sm space-y-2 mb-6 text-left">
                 {STRETCHES.filter((s) => s.freq === "After every session").map((s) => (
-                  <div key={s.name} className="rounded-2xl bg-white/10 px-4 py-3">
-                    <p className="font-bold text-sm">{s.name} <span className="text-white/40 font-normal">· {s.hold}</span></p>
-                    <p className="text-white/40 text-xs">{s.why}</p>
+                  <div key={s.name} className="rounded-2xl bg-ink/10 px-4 py-3">
+                    <p className="font-bold text-sm">{s.name} <span className="text-ink/40 font-normal">· {s.hold}</span></p>
+                    <p className="text-ink/40 text-xs">{s.why}</p>
                   </div>
                 ))}
               </div>
-              <button onClick={finishStretch} className="px-8 py-3.5 rounded-2xl text-base font-black bg-charge text-white hover:bg-charge-strong transition-colors">Done stretching</button>
+              <button onClick={finishStretch} className="px-8 py-3.5 rounded-2xl text-base font-black bg-charge text-paper hover:bg-charge-strong transition-colors">Done stretching</button>
             </>
           )}
 
           {phase === "done" && (
             <>
               <div className="relative mb-4">
-                <div className="w-20 h-20 rounded-full bg-charge flex items-center justify-center"><Check className="w-9 h-9 text-white" strokeWidth={3} /></div>
+                <div className="w-20 h-20 rounded-full bg-charge flex items-center justify-center"><Check className="w-9 h-9 text-paper" strokeWidth={3} /></div>
                 {Array.from({ length: 10 }).map((_, i) => (
-                  <div key={i} className="tl-confetti absolute w-2 h-3 rounded-sm" style={{ left: `${10 + i * 8}%`, top: "10%", background: ["#e7b740", "#d98b2b", "#7a56a8", "#3a5686", "#1e9e5a"][i % 5], animationDelay: `${i * 0.05}s` }} />
+                  <div key={i} className="tl-confetti absolute w-2 h-3 rounded-sm" style={{ left: `${10 + i * 8}%`, top: "10%", background: ["#ded7c5", "#57c07a", "#e8c247", "#6fa8dd", "#ef6a5f"][i % 5], animationDelay: `${i * 0.05}s` }} />
                 ))}
               </div>
               <h2 className="text-2xl font-black font-display mb-1.5">Day complete!</h2>
-              <p className="text-white/50 text-sm mb-1 font-mono">{totalExercises} exercises · {fmtClock(elapsed)}</p>
-              <p className="text-white/40 text-sm mb-6">Great session. Go rest up.</p>
-              <button onClick={onExit} className="px-8 py-3.5 rounded-2xl text-base font-black bg-charge text-white hover:bg-charge-strong transition-colors">Finish</button>
+              <p className="text-ink/50 text-sm mb-1 font-mono">{totalExercises} exercises · {fmtClock(elapsed)}</p>
+              <p className="text-ink/40 text-sm mb-6">Great session. Go rest up.</p>
+              <button onClick={onExit} className="px-8 py-3.5 rounded-2xl text-base font-black bg-charge text-paper hover:bg-charge-strong transition-colors">Finish</button>
             </>
           )}
         </div>
@@ -1070,12 +1290,12 @@ function WorkoutSession({ day, onExit }) {
 
       {confirmExit && (
         <div className="fixed inset-0 z-10 bg-black/70 flex items-center justify-center p-6" onClick={() => setConfirmExit(false)}>
-          <div className="bg-white/10 backdrop-blur rounded-2xl p-5 max-w-xs w-full border border-white/10" onClick={(e) => e.stopPropagation()}>
+          <div className="bg-card backdrop-blur rounded-2xl p-5 max-w-xs w-full border border-line" onClick={(e) => e.stopPropagation()}>
             <p className="font-bold mb-1">End this workout?</p>
-            <p className="text-white/50 text-sm mb-4">Your progress in this session won't be saved.</p>
+            <p className="text-ink-faint text-sm mb-4">Your progress in this session won't be saved.</p>
             <div className="flex gap-2">
-              <button onClick={() => setConfirmExit(false)} className="flex-1 py-2.5 rounded-xl text-sm font-bold bg-white/10 hover:bg-white/15 transition-colors">Keep going</button>
-              <button onClick={onExit} className="flex-1 py-2.5 rounded-xl text-sm font-bold bg-danger hover:bg-danger/85 transition-colors">End</button>
+              <button onClick={() => setConfirmExit(false)} className="flex-1 py-2.5 rounded-xl text-sm font-bold bg-mist hover:bg-mist/70 transition-colors">Keep going</button>
+              <button onClick={onExit} className="flex-1 py-2.5 rounded-xl text-sm font-bold bg-danger text-white hover:bg-danger/85 transition-colors">End</button>
             </div>
           </div>
         </div>
@@ -1083,7 +1303,6 @@ function WorkoutSession({ day, onExit }) {
     </div>
   );
 }
-
 
 function LevelBubble({ size = 40 }) {
   return (
@@ -1098,6 +1317,49 @@ function LevelBubble({ size = 40 }) {
       <span className="text-xs font-bold text-ink-soft tracking-wide uppercase font-display">Finding balance…</span>
     </div>
   );
+}
+
+function BrandMark({ className = "", size = "lg" }) {
+  const dim = size === "sm" ? "w-8 h-8 rounded-lg" : "w-16 h-16 rounded-2xl";
+  const icon = size === "sm" ? "w-4 h-4" : "w-8 h-8";
+  return (
+    <div className={`${dim} bg-charge flex items-center justify-center shadow-lg shadow-charge/20 shrink-0 ${className}`}>
+      <Dumbbell className={`${icon} text-paper`} strokeWidth={2.25} />
+    </div>
+  );
+}
+
+// ---- PWA install support ----
+// Captures the native "beforeinstallprompt" event (Android/desktop Chrome
+// & Edge) so we can trigger it from our own "Install app" button, and
+// separately detects iOS Safari, which never fires that event and needs
+// the manual "Share -> Add to Home Screen" instructions instead.
+function usePwaInstall() {
+  const deferredRef = useRef(null);
+  const [canInstall, setCanInstall] = useState(false);
+  const [installed, setInstalled] = useState(false);
+
+  useEffect(() => {
+    const onPrompt = (e) => { e.preventDefault(); deferredRef.current = e; setCanInstall(true); };
+    const onInstalled = () => { setInstalled(true); setCanInstall(false); deferredRef.current = null; };
+    window.addEventListener("beforeinstallprompt", onPrompt);
+    window.addEventListener("appinstalled", onInstalled);
+    return () => { window.removeEventListener("beforeinstallprompt", onPrompt); window.removeEventListener("appinstalled", onInstalled); };
+  }, []);
+
+  const promptInstall = async () => {
+    const evt = deferredRef.current;
+    if (!evt) return;
+    evt.prompt();
+    try { await evt.userChoice; } catch (err) { /* ignore */ }
+    deferredRef.current = null;
+    setCanInstall(false);
+  };
+
+  const isStandalone = typeof window !== "undefined" && (window.matchMedia?.("(display-mode: standalone)").matches || window.navigator.standalone === true);
+  const isIos = typeof navigator !== "undefined" && /iphone|ipad|ipod/i.test(navigator.userAgent) && !window.MSStream;
+
+  return { canInstall, installed, promptInstall, isStandalone, isIos };
 }
 
 export default function TrainingLog() {
@@ -1125,7 +1387,7 @@ export default function TrainingLog() {
   const [newPlanOpen, setNewPlanOpen] = useState(false);
   const [manageDaysOpen, setManageDaysOpen] = useState(false);
   const [syncOpen, setSyncOpen] = useState(false);
-  const [submitOpen, setSubmitOpen] = useState(false);
+  const [shareOpen, setShareOpen] = useState(null); // plan being shared, or null
   const [confirmDelete, setConfirmDelete] = useState(null);
   const [confirmDeletePlan, setConfirmDeletePlan] = useState(null);
   const [loaded, setLoaded] = useState(false);
@@ -1138,6 +1400,13 @@ export default function TrainingLog() {
   const [isOnline, setIsOnline] = useState(typeof navigator === "undefined" ? true : navigator.onLine);
   const fileInputRef = useRef(null);
   const pushTimer = useRef(null);
+  const pwa = usePwaInstall();
+
+  useEffect(() => {
+    if ("serviceWorker" in navigator) {
+      navigator.serviceWorker.register("./sw.js").catch(() => { /* fine — app still works without offline caching */ });
+    }
+  }, []);
 
   useEffect(() => {
     const goOnline = () => setIsOnline(true);
@@ -1202,6 +1471,7 @@ export default function TrainingLog() {
 
   const isReadOnly = plan?.readOnly === true;
   const canEdit = isRealAccount(firebaseUser);
+  const isAdminUser = isAdmin(firebaseUser);
   const guard = (fn) => (...args) => { if (canEdit) return fn(...args); setSyncOpen(true); };
   const updatePlanDays = (updater) => setPlans((prev) => prev.map((p) => (p.id !== plan.id ? p : { ...p, days: updater(p.days) })));
   const updateExercise = (updated) => updatePlanDays((days) => days.map((d) => (d.id !== activeDay ? d : { ...d, exercises: d.exercises.map((e) => (e.id === updated.id ? updated : e)) })));
@@ -1221,6 +1491,7 @@ export default function TrainingLog() {
     setPage("train");
   };
   const switchPlan = (id) => { setActivePlanId(id); setActiveDay(plans.find((p) => p.id === id)?.days[0]?.id); setPage("train"); };
+  const patchPlan = (id, patch) => setPlans((prev) => prev.map((p) => (p.id === id ? { ...p, ...patch } : p)));
   const deletePlan = (id) => {
     const remaining = plans.filter((p) => p.id !== id);
     setPlans(remaining);
@@ -1245,12 +1516,12 @@ export default function TrainingLog() {
   const doSignIn = async () => {
     setSyncStatus("syncing"); setSyncError(false);
     try { await signInGoogle(); setSyncStatus("idle"); setSyncOpen(false); }
-    catch (err) { setSyncStatus("idle"); setSyncError(true); }
+    catch (err) { setSyncStatus("idle"); setSyncError(authErrorMessage(err, "Couldn't sign in — try again.")); }
   };
   const doUpgrade = async () => {
     setSyncStatus("syncing"); setSyncError(false);
     try { await upgradeToGoogle(); setSyncStatus("idle"); setSyncOpen(false); }
-    catch (err) { setSyncStatus("idle"); setSyncError(true); }
+    catch (err) { setSyncStatus("idle"); setSyncError(authErrorMessage(err, "Couldn't sign in — try again.")); }
   };
   const doSignOut = async () => { try { await signOutUser(); } catch (err) { /* ignore */ } setSyncOpen(false); };
   const goTutorial = () => setOnboardStep("tutorial");
@@ -1258,7 +1529,7 @@ export default function TrainingLog() {
   const [onboardErrorMsg, setOnboardErrorMsg] = useState("");
   const doOnboardGoogle = async () => {
     setSyncStatus("syncing"); setOnboardErrorMsg("");
-    try { await signInGoogle(); setSyncStatus("idle"); goTutorial(); } catch (err) { setSyncStatus("idle"); setOnboardErrorMsg("Couldn't sign in — try again."); }
+    try { await signInGoogle(); setSyncStatus("idle"); goTutorial(); } catch (err) { setSyncStatus("idle"); setOnboardErrorMsg(authErrorMessage(err, "Couldn't sign in — try again.")); }
   };
   const doOnboardGuest = async () => {
     setSyncStatus("syncing");
@@ -1268,7 +1539,7 @@ export default function TrainingLog() {
   const doOnboardEmail = async (email, pw, isSignUp) => {
     setSyncStatus("syncing"); setOnboardErrorMsg("");
     try { isSignUp ? await signUpEmail(email, pw) : await signInEmail(email, pw); setSyncStatus("idle"); goTutorial(); }
-    catch (err) { setSyncStatus("idle"); setOnboardErrorMsg(isSignUp ? "Couldn't create that account — check the email/password." : "Couldn't sign in — check your details."); }
+    catch (err) { setSyncStatus("idle"); setOnboardErrorMsg(authErrorMessage(err, isSignUp ? "Couldn't create that account." : "Couldn't sign in — check your details.")); }
   };
   const saveName = async (first, family) => {
     try { await saveProfileInfo(firebaseUser.uid, first, family, firebaseUser.email || null); } catch (err) { /* ignore */ }
@@ -1282,28 +1553,44 @@ export default function TrainingLog() {
   const focusCount = day.exercises.filter((e) => e.focus).length;
   const levelInfo = LEVELS.find((l) => l.id === plan.level);
   const weeksIn = Math.floor((Date.now() - new Date(plan.blockStartDate).getTime()) / (7 * 24 * 3600 * 1000));
+  const PAGE_TITLE = { train: "Train", community: "Community", profile: "You" };
 
   return (
     <div className="w-full min-h-screen bg-paper text-ink overflow-x-hidden pb-24">
-      {!isOnline && (
-        <div className="bg-ink text-white text-sm font-bold text-center py-2 px-4 flex items-center justify-center gap-2 sticky top-0 z-30">
-          <WifiOff className="w-4 h-4" /> Offline — edits save on this device, sync resumes when you're back online
+      <header className="sticky top-0 z-30 bg-paper/95 backdrop-blur border-b border-line">
+        <div className="max-w-2xl mx-auto px-4 sm:px-6 h-14 flex items-center justify-between gap-3">
+          <div className="flex items-center gap-2 min-w-0">
+            <BrandMark size="sm" />
+            <span className="font-display font-black text-ink text-sm truncate">{PAGE_TITLE[page]}</span>
+          </div>
+          <div className="flex items-center gap-2 shrink-0">
+            {pwa.canInstall && (
+              <button onClick={pwa.promptInstall} className="inline-flex items-center gap-1.5 text-xs font-bold text-paper bg-charge rounded-full pl-2.5 pr-3 py-1.5 hover:bg-charge-strong transition-colors">
+                <PlusSquare className="w-3.5 h-3.5" /> Install app
+              </button>
+            )}
+            {!isOnline && (
+              <span className="inline-flex items-center gap-1.5 text-xs font-bold text-ink-faint bg-mist rounded-full pl-2 pr-2.5 py-1">
+                <WifiOff className="w-3.5 h-3.5" /> Offline
+              </span>
+            )}
+          </div>
         </div>
-      )}
+      </header>
 
       <div className="max-w-2xl mx-auto px-4 sm:px-6 py-6">
 
         {page === "train" && (
           <>
-            <header className="mb-4">
+            <div className="mb-4">
               <p className="text-[11px] font-bold tracking-[0.14em] text-ink-faint uppercase mb-1">{levelInfo?.name || "Custom plan"}{plan.author ? ` · by ${plan.author}` : ""}</p>
               <div className="flex items-center justify-between gap-3">
                 <h1 className="text-3xl font-black tracking-tight text-ink truncate font-display">{plan.name}</h1>
                 {plans.length > 1 && <button onClick={() => setPage("profile")} className="shrink-0 text-sm font-bold text-ink-faint hover:text-ink">Switch</button>}
               </div>
-            </header>
+            </div>
 
-            <WeightLegend />
+            <PlateLegend />
 
             {weeksIn >= 6 && !isReadOnly && (
               <div className="mb-4 rounded-2xl bg-w4-soft border border-w4-ring p-4 flex items-start gap-3">
@@ -1320,10 +1607,10 @@ export default function TrainingLog() {
               {!isReadOnly && <span className="text-sm font-bold text-ink-faint flex items-center gap-1">Edit <Pencil className="w-3.5 h-3.5" /></span>}
             </button>
 
-            <nav className="grid grid-cols-2 sm:grid-cols-4 gap-2 mb-4">
+            <nav className="flex gap-2 overflow-x-auto tl-scroll -mx-4 px-4 pb-1 mb-4">
               {plan.days.map((d) => (
-                <button key={d.id} onClick={() => setActiveDay(d.id)} className={`rounded-2xl px-3.5 py-3 text-left transition ${activeDay === d.id ? "bg-ink text-white shadow-lg" : "bg-card text-ink-soft border border-line hover:border-ink-faint"}`}>
-                  <div className={`text-[11px] font-bold uppercase tracking-wide font-mono ${activeDay === d.id ? "text-white/50" : "text-ink-faint"}`}>{d.label}</div>
+                <button key={d.id} onClick={() => setActiveDay(d.id)} className={`shrink-0 min-w-[7.5rem] rounded-2xl px-3.5 py-3 text-left transition ${activeDay === d.id ? "bg-charge text-paper" : "bg-card text-ink-soft border border-line hover:border-ink-faint"}`}>
+                  <div className={`text-[11px] font-bold uppercase tracking-wide font-mono ${activeDay === d.id ? "text-paper/60" : "text-ink-faint"}`}>{d.label}</div>
                   <div className="text-base font-black leading-tight truncate">{d.title}</div>
                 </button>
               ))}
@@ -1332,18 +1619,18 @@ export default function TrainingLog() {
             <div className="mb-5">
               <p className="text-base text-ink-soft mb-3"><span className="font-bold text-ink">{day.tagline}</span><span className="text-line mx-1.5">·</span>{focusCount} focus, {day.exercises.length - focusCount} maintenance</p>
               {day.exercises.length > 0 && (
-                <button onClick={() => setSessionOpen(true)} className="w-full py-4 rounded-2xl text-lg font-black bg-charge text-white flex items-center justify-center gap-2 active:scale-[0.98] transition-transform shadow-lg shadow-charge/20 hover:bg-charge-strong">
+                <button onClick={() => setSessionOpen(true)} className="w-full py-4 rounded-2xl text-lg font-black bg-charge text-paper flex items-center justify-center gap-2 active:scale-[0.98] transition-transform shadow-lg shadow-charge/20 hover:bg-charge-strong">
                   <Dumbbell className="w-5 h-5" /> Start workout
                 </button>
               )}
             </div>
 
-            <div className="grid sm:grid-cols-2 gap-4">
+            <div className="grid sm:grid-cols-2 gap-3">
               {day.exercises.map((exItem) =>
                 confirmDelete === exItem.id ? (
                   <div key={exItem.id} className="rounded-2xl border border-danger/30 bg-danger-soft p-4 flex items-center justify-between gap-3 sm:col-span-2">
                     <p className="text-sm text-danger">Delete <span className="font-bold">{exItem.name}</span>?</p>
-                    <div className="flex gap-2 shrink-0"><button onClick={() => setConfirmDelete(null)} className="px-3 py-2 rounded-xl text-sm font-bold text-ink-soft hover:bg-white">Cancel</button><button onClick={() => deleteExercise(exItem.id)} className="px-3 py-2 rounded-xl text-sm font-bold bg-danger text-white">Delete</button></div>
+                    <div className="flex gap-2 shrink-0"><button onClick={() => setConfirmDelete(null)} className="px-3 py-2 rounded-xl text-sm font-bold text-ink-soft hover:bg-mist">Cancel</button><button onClick={() => deleteExercise(exItem.id)} className="px-3 py-2 rounded-xl text-sm font-bold bg-danger text-white">Delete</button></div>
                   </div>
                 ) : (
                   <ExerciseCard key={exItem.id} ex={exItem} readOnly={isReadOnly} onOpenEdit={guard(() => setModal({ mode: "edit", exercise: exItem }))} onDelete={guard(() => setConfirmDelete(exItem.id))} onQuickPhoto={guard((dataUrl) => quickPhoto(exItem.id, dataUrl))} />
@@ -1375,26 +1662,29 @@ export default function TrainingLog() {
                   confirmDeletePlan === p.id ? (
                     <div key={p.id} className="rounded-2xl border border-danger/30 bg-danger-soft p-4 flex items-center justify-between gap-3">
                       <p className="text-sm text-danger">Delete <span className="font-bold">{p.name}</span>?</p>
-                      <div className="flex gap-2 shrink-0"><button onClick={() => setConfirmDeletePlan(null)} className="px-3 py-2 rounded-xl text-sm font-bold text-ink-soft hover:bg-white">Cancel</button><button onClick={() => deletePlan(p.id)} className="px-3 py-2 rounded-xl text-sm font-bold bg-danger text-white">Delete</button></div>
+                      <div className="flex gap-2 shrink-0"><button onClick={() => setConfirmDeletePlan(null)} className="px-3 py-2 rounded-xl text-sm font-bold text-ink-soft hover:bg-mist">Cancel</button><button onClick={() => deletePlan(p.id)} className="px-3 py-2 rounded-xl text-sm font-bold bg-danger text-white">Delete</button></div>
                     </div>
                   ) : (
-                    <div key={p.id} className={`rounded-2xl p-4 flex items-center gap-3 ${p.id === activePlanId ? "bg-ink" : "bg-card border border-line"}`}>
+                    <div key={p.id} className={`rounded-2xl p-4 flex items-center gap-3 ${p.id === activePlanId ? "bg-charge" : "bg-card border border-line"}`}>
                       <button onClick={() => switchPlan(p.id)} className="flex-1 min-w-0 text-left">
-                        <p className={`font-black truncate ${p.id === activePlanId ? "text-white" : "text-ink"}`}>{p.name}</p>
-                        <p className={`text-xs ${p.id === activePlanId ? "text-white/50" : "text-ink-faint"}`}>{LEVELS.find((l) => l.id === p.level)?.name || "Custom"} · {p.days.length} days/wk{p.author ? ` · by ${p.author}` : ""}</p>
+                        <p className={`font-black truncate ${p.id === activePlanId ? "text-paper" : "text-ink"}`}>{p.name}</p>
+                        <p className={`text-xs ${p.id === activePlanId ? "text-paper/65" : "text-ink-faint"}`}>{LEVELS.find((l) => l.id === p.level)?.name || "Custom"} · {p.days.length} days/wk{p.author ? ` · by ${p.author}` : ""}{p.shareCode ? " · sharing via code" : ""}{p.publicSubmitted ? " · submitted" : ""}</p>
                       </button>
-                      {p.id === activePlanId && <span className="shrink-0 w-7 h-7 rounded-full bg-charge flex items-center justify-center"><Check className="w-4 h-4 text-white" /></span>}
+                      {p.id === activePlanId && <span className="shrink-0 w-7 h-7 rounded-full bg-paper flex items-center justify-center"><Check className="w-4 h-4 text-charge" /></span>}
+                      <button onClick={() => { if (!isOnline) return; if (!canEdit) { setSyncOpen(true); return; } setShareOpen(p); }} disabled={!isOnline} className={`shrink-0 p-2 rounded-lg disabled:opacity-30 ${p.id === activePlanId ? "text-paper/60 hover:text-paper" : "text-ink-faint hover:text-charge"}`} aria-label="Share plan"><Send className="w-4 h-4" /></button>
                       {plans.length > 1 && (
-                        <button onClick={guard(() => setConfirmDeletePlan(p.id))} className={`shrink-0 p-2 rounded-lg ${p.id === activePlanId ? "text-white/40 hover:text-white" : "text-ink-faint hover:text-danger"}`} aria-label="Delete plan"><Trash2 className="w-4 h-4" /></button>
+                        <button onClick={guard(() => setConfirmDeletePlan(p.id))} className={`shrink-0 p-2 rounded-lg ${p.id === activePlanId ? "text-paper/60 hover:text-paper" : "text-ink-faint hover:text-danger"}`} aria-label="Delete plan"><Trash2 className="w-4 h-4" /></button>
                       )}
                     </div>
                   )
                 ))}
               </div>
-              <button onClick={() => { if (!isOnline) return; if (!canEdit) { setSyncOpen(true); return; } setSubmitOpen(true); }} disabled={!isOnline} className="w-full mt-3 py-3 rounded-2xl text-sm font-bold text-ink-faint border-2 border-dashed border-line hover:border-charge hover:text-charge transition-colors flex items-center justify-center gap-1.5 disabled:opacity-40">
-                <Send className="w-4 h-4" /> Submit "{plan.name}" for pinning{!isOnline && " (needs internet)"}
-              </button>
+              <div className="mt-3">
+                <JoinSharedPlanCard onJoin={forkPlan} />
+              </div>
             </section>
+
+            {isAdminUser && <AdminPanel user={firebaseUser} />}
 
             <section>
               <h2 className="text-[11px] font-bold uppercase tracking-[0.14em] text-ink-faint mb-2.5">Profile</h2>
@@ -1403,6 +1693,25 @@ export default function TrainingLog() {
                 <ChevronRight className="w-4 h-4 text-ink-faint" />
               </button>
             </section>
+
+            {!pwa.isStandalone && (
+              <section>
+                <h2 className="text-[11px] font-bold uppercase tracking-[0.14em] text-ink-faint mb-2.5">Get the app</h2>
+                {pwa.canInstall ? (
+                  <button onClick={pwa.promptInstall} className="w-full flex items-center justify-between gap-2 bg-card border border-line rounded-2xl px-4 py-3.5 hover:border-charge transition-colors">
+                    <span className="flex items-center gap-2.5"><PlusSquare className="w-5 h-5 text-charge" /><span className="font-bold text-ink text-base">Install on this device</span></span>
+                    <ChevronRight className="w-4 h-4 text-ink-faint" />
+                  </button>
+                ) : pwa.isIos ? (
+                  <div className="rounded-2xl border border-line bg-card px-4 py-3.5 text-sm text-ink-soft flex items-start gap-2.5">
+                    <Share className="w-4 h-4 shrink-0 mt-0.5 text-ink-faint" />
+                    <span>Tap the <span className="font-bold text-ink">Share</span> icon in Safari, then <span className="font-bold text-ink">Add to Home Screen</span>.</span>
+                  </div>
+                ) : (
+                  <p className="text-sm text-ink-faint px-1">Your browser will offer an install option once it's ready — look for it in the address bar or browser menu.</p>
+                )}
+              </section>
+            )}
 
             <section>
               <h2 className="text-[11px] font-bold uppercase tracking-[0.14em] text-ink-faint mb-2.5">Backup</h2>
@@ -1416,27 +1725,27 @@ export default function TrainingLog() {
         )}
       </div>
 
-      <nav className="fixed bottom-4 inset-x-4 sm:inset-x-0 sm:max-w-xs sm:mx-auto bg-ink rounded-2xl grid grid-cols-3 z-30 shadow-[0_8px_28px_rgba(21,23,26,0.28)] p-1.5">
-        {[
-          { id: "train", label: "Train", Icon: Home },
-          { id: "community", label: "Community", Icon: Users },
-          { id: "profile", label: "You", Icon: User },
-        ].map(({ id, label, Icon }) => (
-          <button key={id} onClick={() => setPage(id)} className="relative flex flex-col items-center gap-0.5 py-2.5 active:scale-95 transition-transform">
-            {page === id && <span className="absolute inset-0 bg-charge rounded-xl" />}
-            <Icon className={`relative w-5 h-5 transition-colors ${page === id ? "text-white" : "text-white/40"}`} strokeWidth={2.25} />
-            <span className={`relative text-[10px] font-bold transition-colors ${page === id ? "text-white" : "text-white/40"}`}>{label}</span>
-          </button>
-        ))}
+      <nav className="fixed bottom-0 inset-x-0 z-30 bg-card border-t border-line" style={{ paddingBottom: "env(safe-area-inset-bottom)" }}>
+        <div className="grid grid-cols-3 max-w-2xl mx-auto">
+          {[
+            { id: "train", label: "Train", Icon: Home },
+            { id: "community", label: "Community", Icon: Users },
+            { id: "profile", label: "You", Icon: User },
+          ].map(({ id, label, Icon }) => (
+            <button key={id} onClick={() => setPage(id)} className="relative flex flex-col items-center gap-1 py-2.5 active:opacity-70 transition-opacity">
+              {page === id && <span className="absolute top-0 left-1/2 -translate-x-1/2 w-8 h-0.5 rounded-full bg-charge" />}
+              <Icon className={`w-5 h-5 transition-colors ${page === id ? "text-charge" : "text-ink-faint"}`} strokeWidth={2.25} />
+              <span className={`text-[10px] font-bold transition-colors ${page === id ? "text-charge" : "text-ink-faint"}`}>{label}</span>
+            </button>
+          ))}
+        </div>
       </nav>
-      <div className="h-4" />
-
 
       {modal && <ExerciseModal title={modal.mode === "add" ? "Add exercise" : "Edit exercise"} initial={modal.exercise} onCancel={() => setModal(null)} onSave={(form) => { if (modal.mode === "add") addExercise(form); else { updateExercise({ ...form, id: modal.exercise.id }); setModal(null); } }} />}
       {newPlanOpen && <NewPlanModal onCancel={() => setNewPlanOpen(false)} onCreate={createPlan} />}
       {manageDaysOpen && <ManageDaysModal days={plan.days} onCancel={() => setManageDaysOpen(false)} onSave={saveDays} />}
       {syncOpen && <ProfileModal user={firebaseUser} onCancel={() => setSyncOpen(false)} onSignIn={doSignIn} onUpgrade={doUpgrade} onSignOut={doSignOut} status={syncStatus} error={syncError} />}
-      {submitOpen && <SubmitModal plan={plan} user={firebaseUser} onCancel={() => setSubmitOpen(false)} />}
+      {shareOpen && <ShareModal plan={shareOpen} user={firebaseUser} onCancel={() => setShareOpen(null)} onPatchPlan={(patch) => patchPlan(shareOpen.id, patch)} />}
       {sessionOpen && day && <WorkoutSession day={day} onExit={() => setSessionOpen(false)} />}
       {needsName && canEdit && <NameModal onSave={saveName} />}
     </div>
