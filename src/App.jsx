@@ -9,6 +9,37 @@ import {
   Home, User, WifiOff, Clock, Flame, Volume2, VolumeX, Menu, Share, PlusSquare,
 } from "lucide-react";
 
+// The original app used `window.storage`, an API that only exists inside
+// Claude's own preview sandbox — it's undefined on a real deployed site,
+// so every get/set silently failed there and the onboarding flag never
+// actually saved, forcing the sign-in screen to reappear on every visit
+// even though Firebase itself had already remembered the session. This
+// fills in the same get/set/delete/list shape using real localStorage
+// whenever the sandbox version isn't present.
+if (typeof window !== "undefined" && !window.storage) {
+  window.storage = {
+    async get(key) {
+      try { const v = localStorage.getItem(key); return v === null ? null : { key, value: v, shared: false }; }
+      catch (err) { return null; }
+    },
+    async set(key, value) {
+      try { localStorage.setItem(key, value); return { key, value, shared: false }; }
+      catch (err) { return null; }
+    },
+    async delete(key) {
+      try { localStorage.removeItem(key); return { key, deleted: true, shared: false }; }
+      catch (err) { return null; }
+    },
+    async list(prefix) {
+      try {
+        const keys = [];
+        for (let i = 0; i < localStorage.length; i++) { const k = localStorage.key(i); if (!prefix || k.startsWith(prefix)) keys.push(k); }
+        return { keys, shared: false };
+      } catch (err) { return null; }
+    },
+  };
+}
+
 // ---- Fill these in once your repo exists — see the setup steps at the end of the chat ----
 // ---- Fill in with your Firebase project config (Firebase console → Project settings) ----
 const FIREBASE_CONFIG = {
@@ -232,7 +263,8 @@ async function saveProfileInfo(uid, firstName, familyName, email) {
 // permission by itself, since every write it enables is re-checked by the
 // rules regardless of what this file says.
 const ADMIN_UIDS = [
-  "TIQ1Ja4qDTRSdr9IPcjiO2A0DFf1"
+  // Paste your Firebase Auth UID here (Profile → Admin tools → "Your user ID"),
+  // then add the same UID to the isAdmin() allow-list in firestore.rules.
 ];
 function isAdmin(user) { return !!user && ADMIN_UIDS.includes(user.uid); }
 
