@@ -1,0 +1,84 @@
+@import "tailwindcss";
+@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700;800&family=JetBrains+Mono:wght@500;600;700&display=swap');
+
+/*
+  Training Log — design tokens
+  ------------------------------------------------------------------
+  Concept: the weight tiers (Light → Heavy) are recolored to follow
+  the "temper colors" that appear on tool steel as it's heat-treated —
+  pale straw, gold, bronze, purple, deep blue. It's a real metallurgy
+  phenomenon, it reads as a genuine gradient (not five random hues),
+  and it's grounded in the same material — iron — that the plates
+  themselves are made of. That ramp is the one signature color idea;
+  everything else stays quiet around it.
+*/
+
+@theme {
+  --color-ink: #15171a;
+  --color-ink-soft: #4a4e55;
+  --color-ink-faint: #8a8f98;
+
+  --color-paper: #f4f5f0;
+  --color-card: #ffffff;
+  --color-line: #e2e4dd;
+  --color-mist: #eceee8;
+
+  --color-charge: #1e9e5a;
+  --color-charge-strong: #147a44;
+  --color-charge-soft: #e2f5e9;
+
+  --color-danger: #d6473f;
+  --color-danger-soft: #fbe9e8;
+
+  /* Temper ramp — Light → Heavy */
+  --color-w1: #e7b740;
+  --color-w1-strong: #a9791a;
+  --color-w1-soft: #fbf3df;
+  --color-w1-ring: #f0dfae;
+
+  --color-w2: #d98b2b;
+  --color-w2-strong: #96530f;
+  --color-w2-soft: #f8e9d2;
+  --color-w2-ring: #edce9c;
+
+  --color-w3: #b5652e;
+  --color-w3-strong: #7a3f17;
+  --color-w3-soft: #f1e0d2;
+  --color-w3-ring: #e3c1a3;
+
+  --color-w4: #7a56a8;
+  --color-w4-strong: #4e3170;
+  --color-w4-soft: #efe7f5;
+  --color-w4-ring: #d8c5e8;
+
+  --color-w5: #3a5686;
+  --color-w5-strong: #223a5e;
+  --color-w5-soft: #e1e8f2;
+  --color-w5-ring: #b9c9e0;
+
+  --font-display: "Space Grotesk", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, monospace;
+}
+
+html {
+  -webkit-tap-highlight-color: transparent;
+}
+
+body {
+  background: var(--color-paper);
+  color: var(--color-ink);
+  font-family: var(--font-display);
+}
+
+::selection {
+  background: var(--color-charge-soft);
+  color: var(--color-charge-strong);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+  }
+}
