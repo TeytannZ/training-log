@@ -57,74 +57,91 @@ const FIREBASE_CONFIG = {
 // on sight, so the app reuses that real system instead of an invented
 // one. See index.css for the actual hex values behind each class. ----
 const WEIGHT_INFO = {
-  Light: { bg: "bg-w1-soft", text: "text-w1-strong", ring: "ring-w1-ring", dot: "bg-w1", solid: "bg-w1-strong", accent: "text-w1", hex: "#ded7c5", plate: "White", desc: "fails ~15-20 reps" },
-  "Light-Medium": { bg: "bg-w2-soft", text: "text-w2-strong", ring: "ring-w2-ring", dot: "bg-w2", solid: "bg-w2-strong", accent: "text-w2", hex: "#57c07a", plate: "Green", desc: "fails ~12-18 reps" },
-  Medium: { bg: "bg-w3-soft", text: "text-w3-strong", ring: "ring-w3-ring", dot: "bg-w3", solid: "bg-w3-strong", accent: "text-w3", hex: "#e8c247", plate: "Yellow", desc: "fails ~8-15 reps" },
-  "Medium-Heavy": { bg: "bg-w4-soft", text: "text-w4-strong", ring: "ring-w4-ring", dot: "bg-w4", solid: "bg-w4-strong", accent: "text-w4", hex: "#6fa8dd", plate: "Blue", desc: "fails ~6-10 reps" },
-  Heavy: { bg: "bg-w5-soft", text: "text-w5-strong", ring: "ring-w5-ring", dot: "bg-w5", solid: "bg-w5-strong", accent: "text-w5", hex: "#ef6a5f", plate: "Red", desc: "fails ~4-8 reps" },
+  Light: { bg: "bg-w1-soft", text: "text-w1-strong", ring: "ring-w1-ring", dot: "bg-w1", solid: "bg-w1-strong", accent: "text-w1", hex: "#ded7c5", plate: "White", desc: "يفشل عند ~15-20 تكرار" },
+  "Light-Medium": { bg: "bg-w2-soft", text: "text-w2-strong", ring: "ring-w2-ring", dot: "bg-w2", solid: "bg-w2-strong", accent: "text-w2", hex: "#57c07a", plate: "Green", desc: "يفشل عند ~12-18 تكرار" },
+  Medium: { bg: "bg-w3-soft", text: "text-w3-strong", ring: "ring-w3-ring", dot: "bg-w3", solid: "bg-w3-strong", accent: "text-w3", hex: "#e8c247", plate: "Yellow", desc: "يفشل عند ~8-15 تكرار" },
+  "Medium-Heavy": { bg: "bg-w4-soft", text: "text-w4-strong", ring: "ring-w4-ring", dot: "bg-w4", solid: "bg-w4-strong", accent: "text-w4", hex: "#6fa8dd", plate: "Blue", desc: "يفشل عند ~6-10 تكرار" },
+  Heavy: { bg: "bg-w5-soft", text: "text-w5-strong", ring: "ring-w5-ring", dot: "bg-w5", solid: "bg-w5-strong", accent: "text-w5", hex: "#ef6a5f", plate: "Red", desc: "يفشل عند ~4-8 تكرار" },
 };
 const WEIGHT_OPTIONS = ["Light", "Light-Medium", "Medium", "Medium-Heavy", "Heavy"];
 const STORAGE_KEY = "training-log-plans-v4";
 const ONBOARD_KEY = "training-log-onboarded";
 const emptyForm = { name: "", muscle: "", focus: false, sets: 3, reps: "", weight: "Medium", rest: "60 sec", image: null };
+// Self-hosted APK — place the file built by pwabuilder.com at this exact
+// path in your repo's public/ folder. Relative path so it resolves under
+// the /training-log/ base automatically. Keeps the whole install flow on
+// your own site — no GitHub, no third-party site, for anyone downloading.
+const APK_DOWNLOAD_URL = "./downloads/training-log.apk";
 
-function ex(id, name, muscle, focus, sets, reps, weight, rest) {
-  return { id, name, muscle, focus, sets, reps, weight, rest, image: null };
+function ex(id, name, muscle, focus, sets, reps, weight, rest, alt = []) {
+  return { id, name, muscle, focus, sets, reps, weight, rest, image: null, alt };
 }
 function mkDay(id, label, title, tagline, exercises) { return { id, label, title, tagline, exercises }; }
 
+// Straight 4-day Upper/Lower x2 split: each muscle gets hit twice a week
+// instead of once, which is the stronger driver for lagging muscles than
+// a single-hit body-part split. Mon/Tue train, Wed rest, Thu/Fri train,
+// Sat/Sun rest. Every line lists one primary lift; `alt` is a same-slot
+// substitute if equipment's busy or a lift doesn't feel right that day —
+// pick one, not both. Progression: compounds RPE 7-9, isolation RPE 8-9
+// (1-2 reps in reserve) — add weight once you hit the top of the rep
+// range for all sets, two sessions running.
 const ESTABLISHED_DAYS = [
-  mkDay("day1", "Day 1", "Lower A", "Glutes + calves focus", [
-    ex("d1e1", "Back squat (shoulder-width)", "Quads / glute max", false, 3, "6-8", "Heavy", "2.5-3 min"),
-    ex("d1e2", "Walking lunge (dumbbell or barbell)", "Glute max", true, 4, "10-12/leg", "Medium", "2 min"),
-    ex("d1e3", "Leg press (either machine type, mid-platform foot placement)", "Quads", false, 3, "10-15", "Medium", "90 sec"),
-    ex("d1e4", "Standing calf raise", "Calves", true, 4, "12-15", "Medium", "60 sec"),
-    ex("d1e5", "Hanging leg raise", "Core", true, 3, "10-15", "Medium", "60 sec"),
+  mkDay("day1", "اليوم 1", "علوي أ", "الظهر، الصدر، الكتف الخلفي/الترابيس، البايسبس", [
+    ex("d1e1", "Weighted pull-up", "Back", false, 4, "6-10", "Heavy", "2.5 min", ["Lat pulldown, wide grip"]),
+    ex("d1e2", "Chest-supported row", "Back", false, 3, "8-12", "Medium-Heavy", "2 min", ["Seated cable row"]),
+    ex("d1e3", "Incline dumbbell press", "Chest", false, 3, "8-12", "Medium-Heavy", "2 min", ["Incline barbell press"]),
+    ex("d1e4", "Face pull", "Rear delt / traps", true, 3, "12-15", "Light", "60 sec", ["Reverse pec-deck fly"]),
+    ex("d1e5", "Barbell shrug", "Traps", true, 3, "10-15", "Medium-Heavy", "90 sec", ["Dumbbell shrug", "Cable shrug"]),
+    ex("d1e6", "Cable curl — short head (elbows forward)", "Biceps", false, 2, "10-12", "Medium", "60 sec"),
+    ex("d1e7", "Cable curl — long head (elbows back)", "Biceps", false, 2, "10-12", "Medium", "60 sec"),
   ]),
-  mkDay("day2", "Day 2", "Upper A", "Posture fix — delts, traps, forearms, core", [
-    ex("d2e1", "Overhead press", "Delts (front)", true, 3, "6-8", "Heavy", "2-3 min"),
-    ex("d2e2", "Cable lateral raise (single-arm, lean away)", "Delts (side)", true, 4, "12-15", "Light-Medium", "60 sec"),
-    ex("d2e7", "Cable external rotation (elbow at side)", "Rotator cuff / shoulder posture", true, 3, "12-15/side", "Light", "60 sec"),
-    ex("d2e4", "Dumbbell shrug", "Traps", true, 4, "10-15", "Medium-Heavy", "90 sec"),
-    ex("d2e5", "Reverse curl", "Forearms", true, 3, "10-15", "Medium", "60 sec"),
-    ex("d2e3", "Incline dumbbell press", "Chest (maintenance)", false, 2, "8-10", "Medium", "90 sec"),
+  mkDay("day2", "اليوم 2", "سفلي أ", "الفخذ الأمامي، الهامسترينغ، المؤخرة، السمانة، الجذع · تدرّج في القرفصاء إذا اشتد ألم الساق — بدّل إلى مكبس الأرجل", [
+    ex("d2e1", "Back squat", "Quads", false, 4, "5-8", "Heavy", "2.5-3 min", ["Hack squat"]),
+    ex("d2e2", "Romanian deadlift", "Hamstrings", true, 3, "8-10", "Heavy", "2.5 min", ["Lying leg curl"]),
+    ex("d2e3", "Hip thrust", "Glutes", true, 3, "10-12", "Medium-Heavy", "90 sec", ["Cable pull-through"]),
+    ex("d2e4", "Leg extension", "Quads", false, 3, "12-15", "Medium", "60 sec"),
+    ex("d2e5", "Standing calf raise", "Calves", true, 4, "10-15", "Medium", "60 sec", ["Seated calf raise"]),
+    ex("d2e6", "Hanging leg raise", "Core", true, 3, "12-15", "Light-Medium", "60 sec", ["Cable crunch"]),
   ]),
-  mkDay("day3", "Day 3", "Lower B", "Glutes + hamstrings + core focus", [
-    ex("d3e1", "Romanian deadlift", "Hamstrings / glute max", true, 3, "6-10", "Heavy", "2.5 min"),
-    ex("d3e2", "Bulgarian split squat", "Glute max", true, 3, "8-12/leg", "Medium", "90 sec"),
-    ex("d3e3", "Leg press (feet high + wide for glute bias)", "Glute max", true, 3, "12-15", "Medium", "90 sec"),
-    ex("d3e4", "Calf raise on leg press (toes on platform edge)", "Calves", true, 3, "15-20", "Medium", "60 sec"),
-    ex("d3e5", "Reverse crunch (floor)", "Core", true, 3, "12-15", "Light-Medium", "60 sec"),
-    ex("d3e6", "Suitcase carry (single-arm, per side)", "Core (anti-lateral-flexion)", true, 2, "30-40m/side", "Medium-Heavy", "60 sec"),
+  mkDay("day3", "اليوم 3", "علوي ب", "الصدر، الظهر، الكتفين، الترايسبس", [
+    ex("d3e1", "Flat barbell bench press", "Chest", false, 4, "6-10", "Heavy", "2.5 min", ["Flat dumbbell press"]),
+    ex("d3e2", "Weighted dips", "Chest / triceps", false, 3, "AMRAP", "Medium-Heavy", "2 min", ["Close-grip bench press"]),
+    ex("d3e3", "Lat pulldown, underhand grip", "Back", false, 3, "8-12", "Medium-Heavy", "2 min", ["Chin-ups"]),
+    ex("d3e4", "Cable lateral raise (leaning away)", "Delts", true, 3, "12-15", "Light-Medium", "60 sec", ["Dumbbell lateral raise"]),
+    ex("d3e5", "Rear-delt cable fly (45°)", "Rear delt", true, 3, "12-15", "Light", "60 sec", ["Machine reverse fly"]),
+    ex("d3e6", "Overhead one-arm cable extension", "Triceps", false, 2, "10-12", "Medium", "60 sec"),
+    ex("d3e7", "One-arm cable pushdown", "Triceps", false, 2, "10-12", "Medium", "60 sec"),
   ]),
-  mkDay("day4", "Day 4", "Upper B", "Posture fix — rear delts, traps, forearms", [
-    ex("d4e1", "Face pull", "Rear delt / traps", true, 4, "15-20", "Light", "60 sec"),
-    ex("d4e8", "Prone Y-raise (incline bench, thumbs up)", "Lower traps / posture", true, 3, "12-15", "Light", "60 sec"),
-    ex("d4e4", "Barbell shrug", "Traps", true, 3, "8-12", "Heavy", "90 sec"),
-    ex("d4e5", "Farmer's hold (static, no walking)", "Forearms / grip", true, 3, "30-40 sec", "Heavy", "90 sec"),
-    ex("d4e7", "Pull-up (vary grip between sets)", "Back (maintenance)", false, 3, "max reps", "Heavy", "2 min"),
+  mkDay("day4", "اليوم 4", "سفلي ب", "الهامسترينغ، المؤخرة، السمانة، الجذع · نفس التحذير — تدرّج في الرفعة الميتة، بدّل إلى مكبس الأرجل عند الحاجة", [
+    ex("d4e1", "Deadlift (conventional or RDL)", "Hamstrings / glutes", true, 4, "5-8", "Heavy", "3 min", ["Trap bar deadlift"]),
+    ex("d4e2", "Bulgarian split squat", "Glutes", true, 3, "10-12/leg", "Medium-Heavy", "90 sec", ["Walking lunge", "Leg press"]),
+    ex("d4e3", "Lying leg curl", "Hamstrings", true, 3, "10-12", "Medium", "90 sec"),
+    ex("d4e4", "Hip abduction machine", "Glute medius", true, 3, "12-15", "Light-Medium", "60 sec", ["Banded lateral walk"]),
+    ex("d4e5", "Seated calf raise", "Calves", true, 4, "12-15", "Medium", "60 sec", ["Standing calf raise"]),
+    ex("d4e6", "Weighted plank / Pallof press", "Core (anti-rotation)", true, 3, "30-45 sec", "Light-Medium", "60 sec", ["Side plank"]),
   ]),
 ];
 
 const STEP_DOWN = { Heavy: "Medium-Heavy", "Medium-Heavy": "Medium", Medium: "Light-Medium", "Light-Medium": "Light", Light: "Light" };
-const RETURNING_DAYS = ESTABLISHED_DAYS.map((d) => ({ ...d, tagline: `${d.tagline} · ramp-up weeks 1-3`, exercises: d.exercises.map((e) => ({ ...e, weight: STEP_DOWN[e.weight] || e.weight, sets: Math.max(2, e.sets - 1) })) }));
+const RETURNING_DAYS = ESTABLISHED_DAYS.map((d) => ({ ...d, tagline: `${d.tagline} · تدرّج، الأسابيع 1-3`, exercises: d.exercises.map((e) => ({ ...e, weight: STEP_DOWN[e.weight] || e.weight, sets: Math.max(2, e.sets - 1) })) }));
 
 const STARTER_DAYS = [
-  mkDay("sday1", "Day 1", "Full body A", "Whole-body foundation", [
+  mkDay("sday1", "اليوم 1", "الجسم الكامل أ", "أساس الجسم الكامل", [
     ex("s1e1", "Back squat", "Quads / glutes", false, 3, "8-10", "Medium", "2 min"),
     ex("s1e2", "Flat bench press", "Chest", false, 3, "8-10", "Medium", "2 min"),
     ex("s1e3", "Seated cable row", "Back", false, 3, "10-12", "Medium", "90 sec"),
     ex("s1e4", "Plank", "Core", false, 3, "20-40 sec hold", "Light-Medium", "60 sec"),
     ex("s1e5", "Standing calf raise", "Calves", false, 2, "12-15", "Light-Medium", "60 sec"),
   ]),
-  mkDay("sday2", "Day 2", "Full body B", "Whole-body foundation", [
+  mkDay("sday2", "اليوم 2", "الجسم الكامل ب", "أساس الجسم الكامل", [
     ex("s2e1", "Romanian deadlift", "Hamstrings / glutes", false, 3, "8-10", "Medium", "2 min"),
     ex("s2e2", "Overhead press", "Delts", false, 3, "8-10", "Light-Medium", "2 min"),
     ex("s2e3", "Lat pulldown", "Back", false, 3, "10-12", "Medium", "90 sec"),
     ex("s2e4", "Hanging knee raise", "Core", false, 3, "8-12", "Light-Medium", "60 sec"),
     ex("s2e5", "Dumbbell shrug", "Traps", false, 2, "10-12", "Light-Medium", "60 sec"),
   ]),
-  mkDay("sday3", "Day 3", "Full body C", "Whole-body foundation", [
+  mkDay("sday3", "اليوم 3", "الجسم الكامل ج", "أساس الجسم الكامل", [
     ex("s3e1", "Leg press", "Quads", false, 3, "10-12", "Medium", "90 sec"),
     ex("s3e2", "Incline dumbbell press", "Chest", false, 3, "10-12", "Light-Medium", "90 sec"),
     ex("s3e3", "Seated cable row (wide grip)", "Back", false, 3, "10-12", "Medium", "90 sec"),
@@ -134,28 +151,28 @@ const STARTER_DAYS = [
 ];
 
 const GENERAL_DAYS = [
-  mkDay("gday1", "Day 1", "Lower A", "Balanced — no aesthetic skew", [
+  mkDay("gday1", "اليوم 1", "سفلي أ", "متوازن — بدون تركيز جمالي", [
     ex("g1e1", "Back squat", "Quads / glutes", false, 3, "6-8", "Heavy", "2.5 min"),
     ex("g1e2", "Leg curl", "Hamstrings", false, 3, "10-12", "Medium", "90 sec"),
     ex("g1e3", "Leg press", "Quads", false, 3, "10-15", "Medium", "90 sec"),
     ex("g1e4", "Standing calf raise", "Calves", false, 3, "12-15", "Medium", "60 sec"),
     ex("g1e5", "Cable crunch", "Core", false, 3, "12-15", "Medium", "60 sec"),
   ]),
-  mkDay("gday2", "Day 2", "Upper A", "Balanced — no aesthetic skew", [
+  mkDay("gday2", "اليوم 2", "علوي أ", "متوازن — بدون تركيز جمالي", [
     ex("g2e1", "Flat bench press", "Chest", false, 3, "6-8", "Heavy", "2.5 min"),
     ex("g2e2", "Seated cable row", "Back", false, 3, "8-12", "Medium-Heavy", "90 sec"),
     ex("g2e3", "Overhead press", "Delts", false, 3, "8-10", "Medium", "90 sec"),
     ex("g2e4", "Lat pulldown", "Back", false, 3, "10-12", "Medium", "90 sec"),
     ex("g2e5", "EZ bar curl", "Biceps", false, 2, "10-12", "Medium", "60 sec"),
   ]),
-  mkDay("gday3", "Day 3", "Lower B", "Balanced — no aesthetic skew", [
+  mkDay("gday3", "اليوم 3", "سفلي ب", "متوازن — بدون تركيز جمالي", [
     ex("g3e1", "Deadlift", "Posterior chain", false, 3, "5-6", "Heavy", "3 min"),
     ex("g3e2", "Walking lunge", "Quads / glutes", false, 3, "10-12/leg", "Medium", "90 sec"),
     ex("g3e3", "Leg extension", "Quads", false, 3, "12-15", "Medium", "60 sec"),
     ex("g3e4", "Seated calf raise", "Calves", false, 3, "15-20", "Medium", "60 sec"),
     ex("g3e5", "Hanging leg raise", "Core", false, 3, "10-15", "Medium", "60 sec"),
   ]),
-  mkDay("gday4", "Day 4", "Upper B", "Balanced — no aesthetic skew", [
+  mkDay("gday4", "اليوم 4", "علوي ب", "متوازن — بدون تركيز جمالي", [
     ex("g4e1", "Incline dumbbell press", "Chest", false, 3, "8-10", "Medium-Heavy", "2 min"),
     ex("g4e2", "Pull-up (assisted if needed)", "Back", false, 3, "6-10", "Medium-Heavy", "2 min"),
     ex("g4e3", "Lateral raise", "Delts", false, 3, "12-15", "Light-Medium", "60 sec"),
@@ -165,10 +182,10 @@ const GENERAL_DAYS = [
 ];
 
 const LEVELS = [
-  { id: "starter", name: "Beginner", days: STARTER_DAYS, blurb: "3 days/week, full body. No experience needed." },
-  { id: "general", name: "General", days: GENERAL_DAYS, blurb: "4 days/week, balanced across every muscle, no particular focus." },
-  { id: "returning", name: "Returning after a break", days: RETURNING_DAYS, blurb: "4 days/week at lighter loads for a 2-4 week ramp-up." },
-  { id: "established", name: "Author's plan", days: ESTABLISHED_DAYS, blurb: "4 days/week — glutes/core/calves/traps/delts/forearms focus." },
+  { id: "starter", name: "مبتدئ", days: STARTER_DAYS, blurb: "3 أيام أسبوعياً، جسم كامل. لا حاجة لخبرة سابقة." },
+  { id: "general", name: "عام", days: GENERAL_DAYS, blurb: "4 أيام أسبوعياً، متوازن على كل العضلات، بدون تركيز معيّن." },
+  { id: "returning", name: "العودة بعد انقطاع", days: RETURNING_DAYS, blurb: "4 أيام أسبوعياً بأوزان أخف لمدة 2-4 أسابيع من التدرج." },
+  { id: "established", name: "خطة المطوّر", days: ESTABLISHED_DAYS, blurb: "4 أيام أسبوعياً — تركيز على المؤخرة والهامسترينغ والسمانة والكتفين والجذع." },
 ];
 
 function deepClone(obj) { return JSON.parse(JSON.stringify(obj)); }
@@ -231,14 +248,14 @@ function isRealAccount(user) { return !!user && !user.isAnonymous; }
 // can actually read, instead of a hardcoded generic string.
 function authErrorMessage(err, fallback) {
   const code = err?.code || "";
-  if (code === "auth/popup-blocked") return "Your browser blocked the sign-in popup — allow popups for this site and try again.";
-  if (code === "auth/popup-closed-by-user") return "Sign-in window closed before finishing — try again.";
-  if (code === "auth/unauthorized-domain") return "This domain isn't authorized for sign-in yet (Firebase console → Authentication → Settings → Authorized domains).";
-  if (code === "auth/network-request-failed") return "Network error — check your connection and try again.";
-  if (code === "auth/email-already-in-use") return "That email already has an account — try signing in instead.";
-  if (code === "auth/invalid-credential" || code === "auth/wrong-password" || code === "auth/user-not-found") return "Email or password didn't match — try again.";
-  if (code === "auth/weak-password") return "Password needs to be at least 6 characters.";
-  if (code === "auth/invalid-email") return "That doesn't look like a valid email.";
+  if (code === "auth/popup-blocked") return "متصفحك منع نافذة تسجيل الدخول — اسمح بالنوافذ المنبثقة لهذا الموقع وحاول مرة أخرى.";
+  if (code === "auth/popup-closed-by-user") return "أُغلقت نافذة تسجيل الدخول قبل الانتهاء — حاول مرة أخرى.";
+  if (code === "auth/unauthorized-domain") return "هذا النطاق غير مُصرّح له بتسجيل الدخول بعد.";
+  if (code === "auth/network-request-failed") return "خطأ في الشبكة — تحقق من اتصالك وحاول مرة أخرى.";
+  if (code === "auth/email-already-in-use") return "هذا البريد الإلكتروني لديه حساب بالفعل — حاول تسجيل الدخول بدلاً من ذلك.";
+  if (code === "auth/invalid-credential" || code === "auth/wrong-password" || code === "auth/user-not-found") return "البريد الإلكتروني أو كلمة المرور غير متطابقين — حاول مرة أخرى.";
+  if (code === "auth/weak-password") return "كلمة المرور يجب أن تكون 6 أحرف على الأقل.";
+  if (code === "auth/invalid-email") return "هذا لا يبدو بريداً إلكترونياً صحيحاً.";
   return code ? `${fallback} (${code})` : fallback;
 }
 
@@ -263,8 +280,7 @@ async function saveProfileInfo(uid, firstName, familyName, email) {
 // permission by itself, since every write it enables is re-checked by the
 // rules regardless of what this file says.
 const ADMIN_UIDS = [
-  // Paste your Firebase Auth UID here (Profile → Admin tools → "Your user ID"),
-  // then add the same UID to the isAdmin() allow-list in firestore.rules.
+  "TIQ1Ja4qDTRSdr9IPcjiO2A0DFf1"
 ];
 function isAdmin(user) { return !!user && ADMIN_UIDS.includes(user.uid); }
 
@@ -332,8 +348,21 @@ const sheetClass = "bg-card w-full sm:max-w-md sm:rounded-2xl rounded-t-2xl max-
 
 // A tiny plate silhouette — a ring with a bore hole — instead of a plain
 // dot, so the weight tier reads as an actual gym plate, not decoration.
-function PlateIcon({ weight, size = 16 }) {
+// shape "round" (default) reads as a plate in badges/session; "square"
+// is used in the legend, where a rounded swatch scans faster in a list.
+const WEIGHT_LABEL_AR = { Light: "خفيف", "Light-Medium": "خفيف-متوسط", Medium: "متوسط", "Medium-Heavy": "متوسط-ثقيل", Heavy: "ثقيل" };
+function wLabel(w) { return WEIGHT_LABEL_AR[w] || w; }
+
+function PlateIcon({ weight, size = 16, shape = "round" }) {
   const s = WEIGHT_INFO[weight] || WEIGHT_INFO.Medium;
+  if (shape === "square") {
+    const hole = Math.max(3, Math.round(size * 0.3));
+    return (
+      <span className="inline-flex items-center justify-center rounded-lg shrink-0" style={{ width: size, height: size, background: s.hex, boxShadow: `inset 0 0 0 ${Math.max(1, Math.round(size * 0.07))}px rgba(16,15,13,0.35)` }}>
+        <span className="block rounded-sm bg-paper" style={{ width: hole, height: hole }} />
+      </span>
+    );
+  }
   const hole = Math.max(3, Math.round(size * 0.34));
   return (
     <span
@@ -349,26 +378,28 @@ function PlateBadge({ weight, size = "sm" }) {
   const s = WEIGHT_INFO[weight] || WEIGHT_INFO.Medium;
   return (
     <span className={`inline-flex items-center gap-1.5 rounded-full font-bold ring-1 font-mono ${s.bg} ${s.text} ${s.ring} ${size === "lg" ? "px-3 py-1.5 text-sm" : "px-2.5 py-1 text-xs"}`}>
-      <PlateIcon weight={weight} size={size === "lg" ? 14 : 11} />{weight}
+      <PlateIcon weight={weight} size={size === "lg" ? 14 : 11} />{wLabel(weight)}
     </span>
   );
 }
 
 // The signature element: weight tiers colored exactly like standardized
-// competition bumper plates, shown here as a scannable row of plates.
+// competition bumper plates. A vertical list, not a squeezed row — every
+// tier keeps its full name AND its rep range legible on a phone screen,
+// nothing gets hidden past a breakpoint.
 function PlateLegend() {
   return (
     <div className="mb-5 rounded-2xl border border-line bg-card px-4 py-3.5">
       <div className="flex items-center gap-1.5 mb-3">
         <Dumbbell className="w-3.5 h-3.5 text-ink-faint" />
-        <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-ink-faint">Plate guide — load at a glance</p>
+        <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-ink-faint">دليل الأوزان — الحمل من النظرة الأولى</p>
       </div>
-      <div className="flex justify-between gap-1">
+      <div className="space-y-1.5">
         {WEIGHT_OPTIONS.map((w) => (
-          <div key={w} className="text-center flex-1 flex flex-col items-center gap-1.5">
-            <PlateIcon weight={w} size={22} />
-            <div className="text-[10px] font-bold text-ink leading-tight">{w}</div>
-            <div className="text-[9px] text-ink-faint leading-tight font-mono hidden sm:block">{WEIGHT_INFO[w].desc.replace("fails ", "")}</div>
+          <div key={w} className="flex items-center gap-3 rounded-xl bg-mist px-3 py-2">
+            <PlateIcon weight={w} size={26} shape="square" />
+            <span className="font-bold text-ink text-sm flex-1">{wLabel(w)}</span>
+            <span className="text-xs text-ink-faint font-mono text-right">{WEIGHT_INFO[w].desc}</span>
           </div>
         ))}
       </div>
@@ -382,18 +413,18 @@ function PhotoChooser({ libraryImage, onPickUpload, onUseLibrary, onCancel }) {
     <div className="fixed inset-0 z-[60] flex items-end sm:items-center justify-center bg-black/60 backdrop-blur-[2px]" onClick={onCancel}>
       <div className={sheetClass} onClick={(e) => e.stopPropagation()}>
         <div className="p-5 space-y-2.5">
-          <h3 className="font-display font-black text-lg text-ink mb-2">Add a photo</h3>
+          <h3 className="font-display font-black text-lg text-ink mb-2">إضافة صورة</h3>
           {libraryImage && (
             <button onClick={() => onUseLibrary(libraryImage)} className="w-full flex items-center gap-3 p-3 rounded-2xl border border-line text-left hover:border-charge/50 hover:bg-charge-soft transition-colors">
               <img src={libraryImage} alt="" className="w-14 h-14 rounded-xl object-cover shrink-0" />
-              <span><span className="font-bold text-ink block text-sm">Use library photo</span><span className="text-xs text-ink-faint">Already matched to this exercise</span></span>
+              <span><span className="font-bold text-ink block text-sm">استخدام صورة الأرشيف</span><span className="text-xs text-ink-faint">مطابقة لهذا التمرين مسبقاً</span></span>
             </button>
           )}
           <button onClick={() => inputRef.current?.click()} className="w-full flex items-center gap-3 p-3 rounded-2xl border border-line text-left hover:border-charge/50 hover:bg-charge-soft transition-colors">
             <span className="w-14 h-14 rounded-xl bg-mist flex items-center justify-center shrink-0"><Camera className="w-6 h-6 text-ink-faint" /></span>
-            <span><span className="font-bold text-ink block text-sm">Upload your own</span><span className="text-xs text-ink-faint">From your device</span></span>
+            <span><span className="font-bold text-ink block text-sm">رفع صورتك الخاصة</span><span className="text-xs text-ink-faint">من جهازك</span></span>
           </button>
-          <button onClick={onCancel} className="w-full py-3 text-sm font-bold text-ink-faint mt-1">Cancel</button>
+          <button onClick={onCancel} className="w-full py-3 text-sm font-bold text-ink-faint mt-1">إلغاء</button>
         </div>
         <input ref={inputRef} type="file" accept="image/*" className="hidden" onChange={async (e) => { const f = e.target.files?.[0]; if (!f) return; try { onPickUpload(await resizeImage(f)); } catch (err) { /* ignore */ } e.target.value = ""; }} />
       </div>
@@ -415,7 +446,7 @@ function BigPhoto({ image, onPick, readOnly, libraryImage, variant = "hero" }) {
         {image ? <img src={image} alt="" className="w-full h-full object-cover" /> : (
           <div className={`flex flex-col items-center text-ink-faint ${variant === "thumb" ? "gap-0.5" : "gap-1.5"}`}>
             <Camera className={variant === "thumb" ? "w-5 h-5" : "w-8 h-8"} />
-            {variant !== "thumb" && <span className="text-sm font-semibold">{readOnly ? "No photo" : "Add photo"}</span>}
+            {variant !== "thumb" && <span className="text-sm font-semibold">{readOnly ? "لا توجد صورة" : "إضافة صورة"}</span>}
           </div>
         )}
         {!readOnly && (
@@ -472,49 +503,49 @@ function ExerciseModal({ initial, onCancel, onSave, title }) {
         )}
         <div className="px-5 pt-3">
           <a href={searchUrl} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1.5 text-sm font-bold text-charge hover:text-charge-strong">
-            <Search className="w-4 h-4" /> Search images for "{form.name || "this exercise"}" <ChevronRight className="w-4 h-4" />
+            <Search className="w-4 h-4" /> بحث عن صور لـ"{form.name || "هذا التمرين"}" <ChevronRight className="w-4 h-4" />
           </a>
         </div>
         <div className="p-5 pt-4 space-y-4">
-          <Field label="Exercise name">
-            <input value={form.name} onChange={set("name")} placeholder="Start typing — known exercises autocomplete" list="exercise-library-names" className={inputClass} />
+          <Field label="اسم التمرين">
+            <input value={form.name} onChange={set("name")} placeholder="ابدأ الكتابة — التمارين المعروفة تكتمل تلقائياً" list="exercise-library-names" className={inputClass} />
             <datalist id="exercise-library-names">{EXERCISE_LIBRARY.map((e) => <option key={e.name} value={e.name} />)}</datalist>
             {match && (
-              <button type="button" onClick={applyLibrary} className="mt-2 inline-flex items-center gap-1.5 text-sm font-bold text-charge-strong bg-charge-soft px-3 py-1.5 rounded-full"><Check className="w-3.5 h-3.5" /> Use standard muscle/sets/reps for "{match.name}"</button>
+              <button type="button" onClick={applyLibrary} className="mt-2 inline-flex items-center gap-1.5 text-sm font-bold text-charge-strong bg-charge-soft px-3 py-1.5 rounded-full"><Check className="w-3.5 h-3.5" /> استخدام العضلة/المجموعات/التكرارات القياسية لـ"{match.name}"</button>
             )}
           </Field>
           {!match && form.name.trim() && (
-            <p className="text-xs text-ink-faint -mt-2">Not in the standard list — this one's custom, only visible in your own plan.</p>
+            <p className="text-xs text-ink-faint -mt-2">غير موجود في القائمة القياسية — هذا تمرين مخصص، يظهر فقط في خطتك.</p>
           )}
           {!match?.youtubeId && (
-            <Field label="Video (optional)">
-              <input value={videoUrl} onChange={(e) => { setVideoUrl(e.target.value); setForm((f) => ({ ...f, videoId: parseYoutubeId(e.target.value) })); }} placeholder="Paste a YouTube link" className={inputClass} />
-              {videoUrl && !parseYoutubeId(videoUrl) && <p className="text-xs text-danger mt-1">Doesn't look like a valid YouTube link</p>}
+            <Field label="فيديو (اختياري)">
+              <input value={videoUrl} onChange={(e) => { setVideoUrl(e.target.value); setForm((f) => ({ ...f, videoId: parseYoutubeId(e.target.value) })); }} placeholder="ألصق رابط يوتيوب" className={inputClass} />
+              {videoUrl && !parseYoutubeId(videoUrl) && <p className="text-xs text-danger mt-1">هذا لا يبدو رابط يوتيوب صحيح</p>}
             </Field>
           )}
-          <Field label="Muscle"><input value={form.muscle} onChange={set("muscle")} placeholder="e.g. Glute max" className={inputClass} /></Field>
+          <Field label="العضلة"><input value={form.muscle} onChange={set("muscle")} placeholder="مثال: المؤخرة الكبرى" className={inputClass} /></Field>
           <div className="grid grid-cols-3 gap-3">
-            <Field label="Sets"><input type="number" min="1" inputMode="numeric" value={form.sets} onChange={(e) => setForm((f) => ({ ...f, sets: e.target.value.replace(/[^0-9]/g, "") }))} className={inputClass} /></Field>
-            <Field label="Reps"><input value={form.reps} onChange={set("reps")} placeholder="8-12" className={inputClass} /></Field>
-            <Field label="Rest"><input value={form.rest} onChange={set("rest")} placeholder="90 sec" className={inputClass} /></Field>
+            <Field label="المجموعات"><input type="number" min="1" inputMode="numeric" value={form.sets} onChange={(e) => setForm((f) => ({ ...f, sets: e.target.value.replace(/[^0-9]/g, "") }))} className={inputClass} /></Field>
+            <Field label="التكرارات"><input value={form.reps} onChange={set("reps")} placeholder="8-12" className={inputClass} /></Field>
+            <Field label="الراحة"><input value={form.rest} onChange={set("rest")} placeholder="90 ثانية" className={inputClass} /></Field>
           </div>
-          <Field label="Weight">
+          <Field label="الوزن">
             <div className="flex flex-wrap gap-2">
               {WEIGHT_OPTIONS.map((w) => (
                 <button key={w} type="button" onClick={() => setForm((f) => ({ ...f, weight: w }))} className={`inline-flex items-center gap-1.5 px-3.5 py-2.5 rounded-full text-sm font-bold ring-1 transition ${form.weight === w ? `${WEIGHT_INFO[w].bg} ${WEIGHT_INFO[w].text} ${WEIGHT_INFO[w].ring}` : "bg-mist text-ink-faint ring-line"}`}>
-                  <PlateIcon weight={w} size={12} />{w}
+                  <PlateIcon weight={w} size={12} />{wLabel(w)}
                 </button>
               ))}
             </div>
           </Field>
           <label className="flex items-center gap-2.5 text-base text-ink-soft cursor-pointer w-fit py-1">
             <input type="checkbox" checked={form.focus} onChange={(e) => setForm((f) => ({ ...f, focus: e.target.checked }))} className="w-5 h-5 rounded border-line accent-charge" />
-            Mark as a focus muscle
+            وضع علامة كعضلة تركيز
           </label>
         </div>
         <div className="sticky bottom-0 bg-card flex items-center gap-2 px-5 py-4 border-t border-line">
-          <button onClick={onCancel} className="flex-1 py-3.5 rounded-xl text-base font-bold text-ink-soft hover:bg-mist">Cancel</button>
-          <button disabled={!canSave} onClick={() => canSave && onSave({ ...form, sets: Number(form.sets) || 1 })} className="flex-1 py-3.5 rounded-xl text-base font-bold bg-charge text-paper disabled:opacity-30 flex items-center justify-center gap-1.5 hover:bg-charge-strong transition-colors"><Check className="w-4 h-4" /> Save</button>
+          <button onClick={onCancel} className="flex-1 py-3.5 rounded-xl text-base font-bold text-ink-soft hover:bg-mist">إلغاء</button>
+          <button disabled={!canSave} onClick={() => canSave && onSave({ ...form, sets: Number(form.sets) || 1 })} className="flex-1 py-3.5 rounded-xl text-base font-bold bg-charge text-paper disabled:opacity-30 flex items-center justify-center gap-1.5 hover:bg-charge-strong transition-colors"><Check className="w-4 h-4" /> حفظ</button>
         </div>
       </div>
     </div>
@@ -537,16 +568,16 @@ function DetailModal({ ex: item, onCancel }) {
         {videoId ? (
           <div className="px-5 pt-4">
             <div className="aspect-video rounded-2xl overflow-hidden bg-mist">
-              <iframe className="w-full h-full" src={youtubeEmbedUrl(videoId)} title="Exercise video" allowFullScreen />
+              <iframe className="w-full h-full" src={youtubeEmbedUrl(videoId)} title="فيديو التمرين" allowFullScreen />
             </div>
           </div>
         ) : (
-          <p className="px-5 pt-4 text-sm text-ink-faint">No video added for this exercise yet.</p>
+          <p className="px-5 pt-4 text-sm text-ink-faint">لا يوجد فيديو مضاف لهذا التمرين بعد.</p>
         )}
         <div className="p-5 space-y-3">
           <p className="text-ink-soft">{item.muscle}</p>
           <div className="flex flex-wrap items-center gap-2">
-            <span className="inline-flex items-center gap-1.5 text-sm font-mono font-bold text-ink bg-mist rounded-full px-3 py-1.5"><Dumbbell className="w-3.5 h-3.5" /> {item.sets} sets · {item.reps}</span>
+            <span className="inline-flex items-center gap-1.5 text-sm font-mono font-bold text-ink bg-mist rounded-full px-3 py-1.5"><Dumbbell className="w-3.5 h-3.5" /> {item.sets} مجموعات · {item.reps}</span>
             <PlateBadge weight={item.weight} size="lg" />
             <span className="inline-flex items-center gap-1 text-sm font-mono text-ink-faint"><Clock className="w-3.5 h-3.5" /> {item.rest}</span>
           </div>
@@ -568,7 +599,7 @@ function ExerciseCard({ ex: item, onOpenEdit, onDelete, onQuickPhoto, readOnly }
         <div className="relative">
           <BigPhoto image={item.image} onPick={onQuickPhoto} readOnly={readOnly} variant="thumb" />
           {item.focus && (
-            <span className="absolute -top-1.5 -left-1.5 inline-flex items-center justify-center w-5 h-5 rounded-full bg-charge text-paper shadow" title="Focus muscle">
+            <span className="absolute -top-1.5 -left-1.5 inline-flex items-center justify-center w-5 h-5 rounded-full bg-charge text-paper shadow" title="عضلة تركيز">
               <Star className="w-3 h-3 fill-ink" />
             </span>
           )}
@@ -581,8 +612,8 @@ function ExerciseCard({ ex: item, onOpenEdit, onDelete, onQuickPhoto, readOnly }
             </button>
             {!readOnly && (
               <div className="flex gap-0.5 shrink-0 -mr-1.5 -mt-1">
-                <button onClick={onOpenEdit} className="p-2 rounded-full text-ink-faint hover:text-ink hover:bg-mist" aria-label="Edit"><Pencil className="w-3.5 h-3.5" /></button>
-                <button onClick={onDelete} className="p-2 rounded-full text-ink-faint hover:text-danger hover:bg-mist" aria-label="Delete"><Trash2 className="w-3.5 h-3.5" /></button>
+                <button onClick={onOpenEdit} className="p-2 rounded-full bg-mist text-ink-soft hover:text-ink hover:bg-line/60" aria-label="تعديل"><Pencil className="w-3.5 h-3.5" /></button>
+                <button onClick={onDelete} className="p-2 rounded-full bg-mist text-ink-soft hover:text-danger hover:bg-danger-soft" aria-label="حذف"><Trash2 className="w-3.5 h-3.5" /></button>
               </div>
             )}
           </div>
@@ -602,15 +633,15 @@ function ManageDaysModal({ days, onCancel, onSave }) {
   const [list, setList] = useState(days.map((d) => ({ ...d })));
   const update = (id, field, val) => setList((prev) => prev.map((d) => (d.id === id ? { ...d, [field]: val } : d)));
   const remove = (id) => setList((prev) => prev.filter((d) => d.id !== id));
-  const add = () => setList((prev) => [...prev, { id: `day-${Date.now()}`, label: `Day ${prev.length + 1}`, title: "New day", tagline: "", exercises: [] }]);
+  const add = () => setList((prev) => [...prev, { id: `day-${Date.now()}`, label: `اليوم ${prev.length + 1}`, title: "يوم جديد", tagline: "", exercises: [] }]);
 
   return (
     <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/60 backdrop-blur-[2px]" onClick={onCancel}>
       <div className={sheetClass} onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center justify-between px-5 py-4 border-b border-line">
           <div>
-            <h2 className="text-xl font-black text-ink font-display">Days per week</h2>
-            <p className="text-xs text-ink-faint font-mono mt-0.5">{list.length} {list.length === 1 ? "day" : "days"} in this plan</p>
+            <h2 className="text-xl font-black text-ink font-display">أيام الأسبوع</h2>
+            <p className="text-xs text-ink-faint font-mono mt-0.5">{list.length} يوم في هذه الخطة</p>
           </div>
           <button onClick={onCancel} className="p-2 -mr-2 rounded-full text-ink-faint hover:bg-mist"><X className="w-5 h-5" /></button>
         </div>
@@ -619,18 +650,18 @@ function ManageDaysModal({ days, onCancel, onSave }) {
             <div key={d.id} className="rounded-2xl border border-line p-4 space-y-2.5 bg-mist">
               <div className="flex items-center gap-2">
                 <span className="shrink-0 w-7 h-7 rounded-full bg-charge text-paper text-xs font-black font-mono flex items-center justify-center">{i + 1}</span>
-                <input value={d.title} onChange={(e) => update(d.id, "title", e.target.value)} placeholder="Day title" className="flex-1 rounded-xl border border-line bg-card px-3 py-2.5 text-sm font-bold focus:outline-none focus:ring-2 focus:ring-charge" />
+                <input value={d.title} onChange={(e) => update(d.id, "title", e.target.value)} placeholder="عنوان اليوم" className="flex-1 rounded-xl border border-line bg-card px-3 py-2.5 text-sm font-bold focus:outline-none focus:ring-2 focus:ring-charge" />
                 <button onClick={() => remove(d.id)} disabled={list.length <= 1} className="p-2.5 rounded-xl text-ink-faint hover:text-danger hover:bg-danger-soft disabled:opacity-20 transition-colors"><Trash2 className="w-4 h-4" /></button>
               </div>
-              <input value={d.tagline} onChange={(e) => update(d.id, "tagline", e.target.value)} placeholder="Tagline, e.g. Glutes + calves focus" className="w-full rounded-xl border border-line bg-card px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-charge" />
-              <p className="text-xs text-ink-faint font-mono">{d.exercises.length} exercises</p>
+              <input value={d.tagline} onChange={(e) => update(d.id, "tagline", e.target.value)} placeholder="وصف مختصر، مثال: تركيز على المؤخرة والسمانة" className="w-full rounded-xl border border-line bg-card px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-charge" />
+              <p className="text-xs text-ink-faint font-mono">{d.exercises.length} تمارين</p>
             </div>
           ))}
-          <button onClick={add} className="w-full rounded-2xl border-2 border-dashed border-line py-3.5 text-sm font-bold text-ink-faint hover:border-charge hover:text-charge transition-colors flex items-center justify-center gap-1.5"><Plus className="w-4 h-4" /> Add a day</button>
+          <button onClick={add} className="w-full rounded-2xl border-2 border-dashed border-line py-3.5 text-sm font-bold text-ink-faint hover:border-charge hover:text-charge transition-colors flex items-center justify-center gap-1.5"><Plus className="w-4 h-4" /> إضافة يوم</button>
         </div>
         <div className="sticky bottom-0 bg-card flex items-center gap-2 px-5 py-4 border-t border-line">
-          <button onClick={onCancel} className="flex-1 py-3.5 rounded-xl text-base font-bold text-ink-soft hover:bg-mist">Cancel</button>
-          <button onClick={() => onSave(list.map((d, i) => ({ ...d, label: `Day ${i + 1}` })))} className="flex-1 py-3.5 rounded-xl text-base font-bold bg-charge text-paper hover:bg-charge-strong transition-colors flex items-center justify-center gap-1.5"><Check className="w-4 h-4" /> Save</button>
+          <button onClick={onCancel} className="flex-1 py-3.5 rounded-xl text-base font-bold text-ink-soft hover:bg-mist">إلغاء</button>
+          <button onClick={() => onSave(list.map((d, i) => ({ ...d, label: `اليوم ${i + 1}` })))} className="flex-1 py-3.5 rounded-xl text-base font-bold bg-charge text-paper hover:bg-charge-strong transition-colors flex items-center justify-center gap-1.5"><Check className="w-4 h-4" /> حفظ</button>
         </div>
       </div>
     </div>
@@ -644,19 +675,19 @@ function NewPlanModal({ onCancel, onCreate }) {
     <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/60 backdrop-blur-[2px]" onClick={onCancel}>
       <div className={sheetClass} onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center justify-between px-5 py-4 border-b border-line">
-          <h2 className="text-xl font-black text-ink font-display">New plan</h2>
+          <h2 className="text-xl font-black text-ink font-display">خطة جديدة</h2>
           <button onClick={onCancel} className="p-2 -mr-2 rounded-full text-ink-faint hover:bg-mist"><X className="w-5 h-5" /></button>
         </div>
         <div className="p-5 space-y-4">
-          <Field label="Plan name"><input value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Winter block" className={inputClass} /></Field>
-          <Field label="Starting point">
+          <Field label="اسم الخطة"><input value={name} onChange={(e) => setName(e.target.value)} placeholder="مثال: خطة الشتاء" className={inputClass} /></Field>
+          <Field label="نقطة البداية">
             <div className="space-y-2">
               {LEVELS.map((l) => (
                 <button key={l.id} type="button" onClick={() => setLevelId(l.id)} className={`w-full text-left rounded-2xl border p-4 transition ${levelId === l.id ? "border-charge bg-charge-soft" : "border-line bg-mist"}`}>
                   <div className="flex items-center gap-2">
                     <span className={`w-4 h-4 rounded-full border-2 flex items-center justify-center shrink-0 ${levelId === l.id ? "border-charge" : "border-line"}`}>{levelId === l.id && <span className="w-2 h-2 rounded-full bg-charge" />}</span>
                     <span className="font-bold text-ink text-base">{l.name}</span>
-                    <span className="text-xs text-ink-faint ml-auto font-mono">{l.days.length} days/wk</span>
+                    <span className="text-xs text-ink-faint ml-auto font-mono">{l.days.length} أيام/أسبوع</span>
                   </div>
                   <p className="text-sm text-ink-faint mt-1 pl-6">{l.blurb}</p>
                 </button>
@@ -665,8 +696,8 @@ function NewPlanModal({ onCancel, onCreate }) {
           </Field>
         </div>
         <div className="sticky bottom-0 bg-card flex items-center gap-2 px-5 py-4 border-t border-line">
-          <button onClick={onCancel} className="flex-1 py-3.5 rounded-xl text-base font-bold text-ink-soft hover:bg-mist">Cancel</button>
-          <button disabled={!name.trim()} onClick={() => onCreate(name.trim(), levelId)} className="flex-1 py-3.5 rounded-xl text-base font-bold bg-charge text-paper disabled:opacity-30 hover:bg-charge-strong transition-colors flex items-center justify-center gap-1.5"><Plus className="w-4 h-4" /> Create</button>
+          <button onClick={onCancel} className="flex-1 py-3.5 rounded-xl text-base font-bold text-ink-soft hover:bg-mist">إلغاء</button>
+          <button disabled={!name.trim()} onClick={() => onCreate(name.trim(), levelId)} className="flex-1 py-3.5 rounded-xl text-base font-bold bg-charge text-paper disabled:opacity-30 hover:bg-charge-strong transition-colors flex items-center justify-center gap-1.5"><Plus className="w-4 h-4" /> إنشاء</button>
         </div>
       </div>
     </div>
@@ -681,15 +712,15 @@ function NameModal({ onSave }) {
     <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/60 backdrop-blur-[2px]">
       <div className={sheetClass}>
         <div className="px-5 py-4 border-b border-line">
-          <h2 className="text-xl font-black text-ink font-display">Finish your profile</h2>
-          <p className="text-sm text-ink-faint mt-1">One-time — helps identify who's using the app and any pinning requests.</p>
+          <h2 className="text-xl font-black text-ink font-display">أكمل ملفك الشخصي</h2>
+          <p className="text-sm text-ink-faint mt-1">مرة واحدة فقط — يساعد في معرفة من يستخدم التطبيق وطلبات التثبيت.</p>
         </div>
         <div className="p-5 space-y-4">
-          <Field label="First name"><input value={first} onChange={(e) => setFirst(e.target.value)} className={inputClass} /></Field>
-          <Field label="Family name (اللقب)"><input value={family} onChange={(e) => setFamily(e.target.value)} className={inputClass} /></Field>
+          <Field label="الاسم الأول"><input value={first} onChange={(e) => setFirst(e.target.value)} className={inputClass} /></Field>
+          <Field label="اللقب"><input value={family} onChange={(e) => setFamily(e.target.value)} className={inputClass} /></Field>
         </div>
         <div className="px-5 pb-5">
-          <button disabled={!canSave} onClick={() => onSave(first.trim(), family.trim())} className="w-full py-3.5 rounded-xl text-base font-bold bg-charge text-paper disabled:opacity-30 hover:bg-charge-strong transition-colors">Continue</button>
+          <button disabled={!canSave} onClick={() => onSave(first.trim(), family.trim())} className="w-full py-3.5 rounded-xl text-base font-bold bg-charge text-paper disabled:opacity-30 hover:bg-charge-strong transition-colors">متابعة</button>
         </div>
       </div>
     </div>
@@ -702,23 +733,23 @@ function ProfileModal({ user, onCancel, onSignIn, onUpgrade, onSignOut, status, 
     <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/60 backdrop-blur-[2px]" onClick={onCancel}>
       <div className={sheetClass} onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center justify-between px-5 py-4 border-b border-line">
-          <h2 className="text-xl font-black text-ink font-display flex items-center gap-2"><Cloud className="w-5 h-5" /> Profile</h2>
+          <h2 className="text-xl font-black text-ink font-display flex items-center gap-2"><Cloud className="w-5 h-5" /> الملف الشخصي</h2>
           <button onClick={onCancel} className="p-2 -mr-2 rounded-full text-ink-faint hover:bg-mist"><X className="w-5 h-5" /></button>
         </div>
         <div className="p-5 space-y-4">
           {user && !anon ? (
             <div className="space-y-3">
               <div className="rounded-2xl bg-charge-soft border border-charge/20 p-4 text-sm text-charge flex items-center gap-2">
-                <Check className="w-4 h-4 shrink-0" /> Signed in as <span className="font-bold">{user.displayName}</span>. Plans sync automatically.
+                <Check className="w-4 h-4 shrink-0" /> تم تسجيل الدخول باسم <span className="font-bold">{user.displayName}</span>. تتم مزامنة الخطط تلقائياً.
               </div>
-              <button onClick={onSignOut} className="w-full py-3.5 rounded-xl text-base font-bold text-danger border border-danger/30 hover:bg-danger-soft">Sign out</button>
+              <button onClick={onSignOut} className="w-full py-3.5 rounded-xl text-base font-bold text-danger border border-danger/30 hover:bg-danger-soft">تسجيل الخروج</button>
             </div>
           ) : (
             <>
-              <p className="text-base text-ink-soft">{anon ? "You're trying the app — nothing saves permanently yet. Sign in to keep everything you've built and unlock editing, new plans, and submissions." : "One tap, no password. This is your identity for plans, sync, and submissions."}</p>
-              {error && <div className="rounded-2xl bg-danger-soft border border-danger/20 p-3.5 text-sm text-danger flex items-start gap-2"><AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" /> {typeof error === "string" ? error : "Couldn't sign in — try again."}</div>}
+              <p className="text-base text-ink-soft">{anon ? "أنت تجرّب التطبيق — لا شيء يُحفظ بشكل دائم بعد. سجّل الدخول للاحتفاظ بكل ما أنشأته وفتح التعديل والخطط الجديدة والإرسال." : "نقرة واحدة، بدون كلمة مرور. هذه هويتك للخطط والمزامنة والإرسال."}</p>
+              {error && <div className="rounded-2xl bg-danger-soft border border-danger/20 p-3.5 text-sm text-danger flex items-start gap-2"><AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" /> {typeof error === "string" ? error : "تعذّر تسجيل الدخول — حاول مرة أخرى."}</div>}
               <button disabled={status === "syncing"} onClick={anon ? onUpgrade : onSignIn} className="w-full py-3.5 rounded-xl text-base font-bold bg-charge text-paper disabled:opacity-30 hover:bg-charge-strong transition-colors flex items-center justify-center gap-1.5">
-                {status === "syncing" ? <><Loader2 className="w-4 h-4 animate-spin" /> Signing in…</> : "Continue with Google"}
+                {status === "syncing" ? <><Loader2 className="w-4 h-4 animate-spin" /> جارٍ تسجيل الدخول…</> : "المتابعة عبر جوجل"}
               </button>
             </>
           )}
@@ -756,39 +787,39 @@ function ShareModal({ plan, user, onCancel, onPatchPlan }) {
     <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/60 backdrop-blur-[2px]" onClick={onCancel}>
       <div className={sheetClass} onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center justify-between px-5 py-4 border-b border-line">
-          <h2 className="text-xl font-black text-ink font-display flex items-center gap-2"><Send className="w-5 h-5" /> Share "{plan.name}"</h2>
+          <h2 className="text-xl font-black text-ink font-display flex items-center gap-2"><Send className="w-5 h-5" /> مشاركة "{plan.name}"</h2>
           <button onClick={onCancel} className="p-2 -mr-2 rounded-full text-ink-faint hover:bg-mist"><X className="w-5 h-5" /></button>
         </div>
         <div className="p-5 space-y-5">
 
           <div className="rounded-2xl border border-line p-4">
-            <p className="font-bold text-ink text-sm mb-1">Share with specific people</p>
-            <p className="text-xs text-ink-faint mb-3">Generates a code. Only people you give it to can add this plan — it's not listed anywhere.</p>
+            <p className="font-bold text-ink text-sm mb-1">المشاركة مع أشخاص محددين</p>
+            <p className="text-xs text-ink-faint mb-3">يولّد رمزاً. فقط من تعطيه الرمز يمكنه إضافة هذه الخطة — غير مُدرجة في أي مكان.</p>
             {plan.shareCode ? (
               <>
                 <div className="flex items-center gap-2 mb-2">
                   <span className="flex-1 font-mono font-black text-2xl tracking-[0.2em] text-charge bg-charge-soft rounded-xl px-4 py-2.5 text-center">{plan.shareCode}</span>
                   <button onClick={copyCode} className="p-3 rounded-xl bg-mist text-ink-soft hover:text-ink shrink-0"><Copy className="w-4 h-4" /></button>
                 </div>
-                {copied && <p className="text-xs text-charge mb-2">Copied.</p>}
-                <button disabled={codeState === "sending"} onClick={revokeCode} className="text-sm font-bold text-danger disabled:opacity-40">Stop sharing</button>
+                {copied && <p className="text-xs text-charge mb-2">تم النسخ.</p>}
+                <button disabled={codeState === "sending"} onClick={revokeCode} className="text-sm font-bold text-danger disabled:opacity-40">إيقاف المشاركة</button>
               </>
             ) : (
               <button disabled={codeState === "sending"} onClick={generateCode} className="w-full py-3 rounded-xl text-sm font-bold bg-mist text-ink hover:bg-line/60 disabled:opacity-40 transition-colors">
-                {codeState === "sending" ? "Generating…" : "Generate a code"}
+                {codeState === "sending" ? "جارٍ التوليد…" : "توليد رمز"}
               </button>
             )}
-            {codeState === "error" && <p className="text-xs text-danger mt-2">Something went wrong — try again.</p>}
+            {codeState === "error" && <p className="text-xs text-danger mt-2">حدث خطأ ما — حاول مرة أخرى.</p>}
           </div>
 
           <div className="rounded-2xl border border-line p-4">
-            <p className="font-bold text-ink text-sm mb-1">Submit to Community</p>
-            <p className="text-xs text-ink-faint mb-3">Sends "{plan.name}" for review. Visible to everyone once approved. Photos aren't included, just the exercise list.</p>
+            <p className="font-bold text-ink text-sm mb-1">الإرسال إلى المجتمع</p>
+            <p className="text-xs text-ink-faint mb-3">يرسل "{plan.name}" للمراجعة. تظهر للجميع بعد الموافقة. الصور غير مضمّنة، فقط قائمة التمارين.</p>
             {pubState === "sent" ? (
-              <div className="rounded-xl bg-charge-soft border border-charge/20 p-3 text-sm text-charge flex items-center gap-2"><Check className="w-4 h-4 shrink-0" /> Sent — appears in Community once approved.</div>
+              <div className="rounded-xl bg-charge-soft border border-charge/20 p-3 text-sm text-charge flex items-center gap-2"><Check className="w-4 h-4 shrink-0" /> تم الإرسال — ستظهر في المجتمع بعد الموافقة.</div>
             ) : (
               <>
-                {pubState === "error" && <p className="text-xs text-danger mb-2">Something went wrong — try again.</p>}
+                {pubState === "error" && <p className="text-xs text-danger mb-2">حدث خطأ ما — حاول مرة أخرى.</p>}
                 <button disabled={pubState === "sending"} onClick={submitPublic} className="w-full py-3 rounded-xl text-sm font-bold bg-mist text-ink hover:bg-line/60 disabled:opacity-40 transition-colors">
                   {pubState === "sending" ? "Sending…" : "Submit for review"}
                 </button>
@@ -796,6 +827,35 @@ function ShareModal({ plan, user, onCancel, onPatchPlan }) {
             )}
           </div>
 
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// A lightweight, always-one-tap-away plan switcher — reachable straight
+// from the Train page instead of needing a trip to the You tab.
+function PlanSwitcherSheet({ plans, activePlanId, levels, onSwitch, onManage, onCancel }) {
+  return (
+    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/60 backdrop-blur-[2px]" onClick={onCancel}>
+      <div className={sheetClass} onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-between px-5 py-4 border-b border-line">
+          <h2 className="text-xl font-black text-ink font-display">تبديل الخطة</h2>
+          <button onClick={onCancel} className="p-2 -mr-2 rounded-full text-ink-faint hover:bg-mist"><X className="w-5 h-5" /></button>
+        </div>
+        <div className="p-5 space-y-2">
+          {plans.map((p) => (
+            <button key={p.id} onClick={() => onSwitch(p.id)} className={`w-full text-left rounded-2xl p-4 flex items-center gap-3 transition ${p.id === activePlanId ? "bg-charge" : "bg-mist hover:bg-line/40"}`}>
+              <div className="flex-1 min-w-0">
+                <p className={`font-black truncate ${p.id === activePlanId ? "text-paper" : "text-ink"}`}>{p.name}</p>
+                <p className={`text-xs ${p.id === activePlanId ? "text-paper/65" : "text-ink-faint"}`}>{levels.find((l) => l.id === p.level)?.name || "مخصصة"} · {p.days.length} أيام/أسبوع</p>
+              </div>
+              {p.id === activePlanId && <span className="shrink-0 w-6 h-6 rounded-full bg-paper flex items-center justify-center"><Check className="w-3.5 h-3.5 text-charge" /></span>}
+            </button>
+          ))}
+        </div>
+        <div className="px-5 pb-5">
+          <button onClick={onManage} className="w-full py-3 rounded-xl text-sm font-bold text-ink-faint hover:text-ink hover:bg-mist transition-colors">إدارة كل الخطط ←</button>
         </div>
       </div>
     </div>
@@ -817,13 +877,14 @@ function JoinSharedPlanCard({ onJoin }) {
   };
   return (
     <div className="rounded-2xl border border-dashed border-line p-4">
-      <p className="font-bold text-ink text-sm mb-1">Have a share code?</p>
+      <p className="font-bold text-ink text-sm mb-1">إضافة خطة شاركها معك أحد</p>
+      <p className="text-xs text-ink-faint mb-2">إن شارك معك صديق إحدى خططه، سيكون قد أرسل لك رمزاً من 6 خانات (من شاشة المشاركة عنده). ألصقه هنا للحصول على نسختك الخاصة — لن تتزامن مع خطته، إنها فقط نقطة بداية.</p>
       <div className="flex gap-2 mt-2">
-        <input value={code} onChange={(e) => { setCode(e.target.value.toUpperCase()); setState("idle"); }} placeholder="e.g. 7QK4RM" maxLength={6} className="flex-1 rounded-xl border border-line px-3 py-2.5 text-sm font-mono font-bold tracking-widest bg-mist text-ink placeholder:text-ink-faint placeholder:tracking-normal placeholder:font-normal focus:outline-none focus:ring-2 focus:ring-charge" />
-        <button disabled={state === "loading" || !code.trim()} onClick={submit} className="px-4 py-2.5 rounded-xl text-sm font-bold bg-charge text-paper disabled:opacity-30 hover:bg-charge-strong transition-colors">Add</button>
+        <input value={code} onChange={(e) => { setCode(e.target.value.toUpperCase()); setState("idle"); }} placeholder="مثال: 7QK4RM" maxLength={6} className="flex-1 rounded-xl border border-line px-3 py-2.5 text-sm font-mono font-bold tracking-widest bg-mist text-ink placeholder:text-ink-faint placeholder:tracking-normal placeholder:font-normal focus:outline-none focus:ring-2 focus:ring-charge" />
+        <button disabled={state === "loading" || !code.trim()} onClick={submit} className="px-4 py-2.5 rounded-xl text-sm font-bold bg-charge text-paper disabled:opacity-30 hover:bg-charge-strong transition-colors">إضافة</button>
       </div>
-      {state === "notfound" && <p className="text-xs text-danger mt-2">No plan found for that code.</p>}
-      {state === "error" && <p className="text-xs text-danger mt-2">Something went wrong — try again.</p>}
+      {state === "notfound" && <p className="text-xs text-danger mt-2">لم يتم العثور على خطة بهذا الرمز.</p>}
+      {state === "error" && <p className="text-xs text-danger mt-2">حدث خطأ ما — حاول مرة أخرى.</p>}
     </div>
   );
 }
@@ -844,22 +905,22 @@ function AdminPanel({ user }) {
 
   return (
     <section>
-      <h2 className="text-[11px] font-bold uppercase tracking-[0.14em] text-ink-faint mb-2.5">Admin tools</h2>
+      <h2 className="text-[11px] font-bold uppercase tracking-[0.14em] text-ink-faint mb-2.5">أدوات المسؤول</h2>
       <button onClick={copyUid} className="w-full flex items-center justify-between gap-2 bg-card border border-line rounded-2xl px-4 py-3.5 mb-2 hover:border-ink-faint transition-colors">
-        <span className="text-left"><span className="font-bold text-ink text-sm block">Your user ID</span><span className="text-xs text-ink-faint font-mono">{user.uid}</span></span>
-        <span className="shrink-0 text-xs font-bold text-charge">{copied ? "Copied" : "Copy"}</span>
+        <span className="text-left"><span className="font-bold text-ink text-sm block">معرّف المستخدم الخاص بك</span><span className="text-xs text-ink-faint font-mono">{user.uid}</span></span>
+        <span className="shrink-0 text-xs font-bold text-charge">{copied ? "تم النسخ" : "نسخ"}</span>
       </button>
       <div className="rounded-2xl border border-line bg-card p-4">
-        <p className="text-xs font-bold text-ink-faint uppercase tracking-wide mb-3">Pending Community submissions</p>
-        {items === null && <p className="text-sm text-ink-faint flex items-center gap-2"><Loader2 className="w-4 h-4 animate-spin" /> Loading…</p>}
-        {items?.length === 0 && <p className="text-sm text-ink-faint">Nothing waiting on review.</p>}
+        <p className="text-xs font-bold text-ink-faint uppercase tracking-wide mb-3">إرسالات المجتمع قيد المراجعة</p>
+        {items === null && <p className="text-sm text-ink-faint flex items-center gap-2"><Loader2 className="w-4 h-4 animate-spin" /> جارٍ التحميل…</p>}
+        {items?.length === 0 && <p className="text-sm text-ink-faint">لا شيء بانتظار المراجعة.</p>}
         <div className="space-y-2">
           {items?.map((p) => (
             <div key={p.id} className="rounded-xl bg-mist p-3 flex items-center justify-between gap-2">
-              <div className="min-w-0"><p className="font-bold text-sm text-ink truncate">{p.name}</p><p className="text-xs text-ink-faint">by {p.author || "anonymous"} · {p.days?.length || 0} days/wk</p></div>
+              <div className="min-w-0"><p className="font-bold text-sm text-ink truncate">{p.name}</p><p className="text-xs text-ink-faint">بواسطة {p.author || "مجهول"} · {p.days?.length || 0} أيام/أسبوع</p></div>
               <div className="flex gap-1.5 shrink-0">
-                <button disabled={busyId === p.id} onClick={() => approve(p.id)} className="p-2 rounded-lg bg-charge-soft text-charge disabled:opacity-40" aria-label="Approve"><Check className="w-4 h-4" /></button>
-                <button disabled={busyId === p.id} onClick={() => reject(p.id)} className="p-2 rounded-lg bg-danger-soft text-danger disabled:opacity-40" aria-label="Reject"><X className="w-4 h-4" /></button>
+                <button disabled={busyId === p.id} onClick={() => approve(p.id)} className="p-2 rounded-lg bg-charge-soft text-charge disabled:opacity-40" aria-label="موافقة"><Check className="w-4 h-4" /></button>
+                <button disabled={busyId === p.id} onClick={() => reject(p.id)} className="p-2 rounded-lg bg-danger-soft text-danger disabled:opacity-40" aria-label="رفض"><X className="w-4 h-4" /></button>
               </div>
             </div>
           ))}
@@ -883,18 +944,18 @@ function CommunityPage({ onFork, isOnline }) {
   }, [isOnline]);
   return (
     <div className="space-y-3">
-      <h1 className="text-3xl font-black tracking-tight text-ink font-display">Community</h1>
-      <p className="text-base text-ink-faint mb-4">Plans other people submitted and got approved.</p>
-      {state === "offline" && <p className="text-sm text-ink-faint text-center py-10">You're offline — community plans need an internet connection.</p>}
-      {state === "loading" && <div className="flex items-center gap-2 text-ink-faint text-sm py-10 justify-center"><Loader2 className="w-4 h-4 animate-spin" /> Loading…</div>}
-      {state === "empty" && <p className="text-sm text-ink-faint text-center py-10">No approved plans yet — check back later.</p>}
+      <h1 className="text-3xl font-black tracking-tight text-ink font-display">المجتمع</h1>
+      <p className="text-base text-ink-faint mb-4">خطط أرسلها آخرون وتمت الموافقة عليها.</p>
+      {state === "offline" && <p className="text-sm text-ink-faint text-center py-10">أنت غير متصل — خطط المجتمع تحتاج اتصالاً بالإنترنت.</p>}
+      {state === "loading" && <div className="flex items-center gap-2 text-ink-faint text-sm py-10 justify-center"><Loader2 className="w-4 h-4 animate-spin" /> جارٍ التحميل…</div>}
+      {state === "empty" && <p className="text-sm text-ink-faint text-center py-10">لا توجد خطط موافق عليها بعد — تحقق لاحقاً.</p>}
       {items.map((p) => (
         <div key={p.id} className="rounded-2xl border border-line bg-card p-4 flex items-center justify-between gap-3">
           <div className="min-w-0">
             <p className="font-black text-ink truncate">{p.name}</p>
-            <p className="text-sm text-ink-faint">by {p.author || "anonymous"} · {p.days?.length || 0} days/wk</p>
+            <p className="text-sm text-ink-faint">بواسطة {p.author || "مجهول"} · {p.days?.length || 0} أيام/أسبوع</p>
           </div>
-          <button onClick={() => onFork(p)} className="shrink-0 px-3.5 py-2.5 rounded-xl text-sm font-bold bg-charge text-paper hover:bg-charge-strong transition-colors flex items-center gap-1.5"><Copy className="w-4 h-4" /> Copy</button>
+          <button onClick={() => onFork(p)} className="shrink-0 px-3.5 py-2.5 rounded-xl text-sm font-bold bg-charge text-paper hover:bg-charge-strong transition-colors flex items-center gap-1.5"><Copy className="w-4 h-4" /> نسخ</button>
         </div>
       ))}
     </div>
@@ -910,18 +971,18 @@ function AuthStep({ onGoogle, onGuest, onEmailAuth, status, error }) {
   if (mode === "email") {
     return (
       <div className="flex-1 flex flex-col justify-center px-8 max-w-sm mx-auto w-full">
-        <h1 className="text-3xl font-black text-ink font-display mb-1">{isSignUp ? "Create account" : "Sign in"}</h1>
-        <p className="text-ink-faint mb-6">{isSignUp ? "Email + password, no Google needed." : "Welcome back."}</p>
+        <h1 className="text-3xl font-black text-ink font-display mb-1">{isSignUp ? "إنشاء حساب" : "تسجيل الدخول"}</h1>
+        <p className="text-ink-faint mb-6">{isSignUp ? "بريد إلكتروني وكلمة مرور، بدون حاجة لجوجل." : "أهلاً بعودتك."}</p>
         <div className="space-y-3 mb-4">
-          <input type="email" placeholder="Email" value={email} onChange={(e) => setEmail(e.target.value)} className={inputClass} />
-          <input type="password" placeholder="Password" value={pw} onChange={(e) => setPw(e.target.value)} className={inputClass} />
+          <input type="email" placeholder="البريد الإلكتروني" value={email} onChange={(e) => setEmail(e.target.value)} className={inputClass} />
+          <input type="password" placeholder="كلمة المرور" value={pw} onChange={(e) => setPw(e.target.value)} className={inputClass} />
         </div>
         {error && <p className="text-danger text-sm mb-3">{error}</p>}
         <button disabled={status === "syncing" || !email || !pw} onClick={() => onEmailAuth(email, pw, isSignUp)} className="w-full py-3.5 rounded-xl text-base font-bold bg-charge text-paper disabled:opacity-30 mb-3 hover:bg-charge-strong transition-colors">
-          {status === "syncing" ? "…" : isSignUp ? "Create account" : "Sign in"}
+          {status === "syncing" ? "…" : isSignUp ? "إنشاء حساب" : "تسجيل الدخول"}
         </button>
-        <button onClick={() => setIsSignUp((v) => !v)} className="text-sm font-bold text-ink-faint mb-2">{isSignUp ? "Already have an account? Sign in" : "New here? Create an account"}</button>
-        <button onClick={() => setMode("choice")} className="text-sm font-bold text-ink-faint">← Back</button>
+        <button onClick={() => setIsSignUp((v) => !v)} className="text-sm font-bold text-ink-faint mb-2">{isSignUp ? "لديك حساب؟ سجّل الدخول" : "جديد هنا؟ أنشئ حساباً"}</button>
+        <button onClick={() => setMode("choice")} className="text-sm font-bold text-ink-faint">→ رجوع</button>
       </div>
     );
   }
@@ -929,22 +990,22 @@ function AuthStep({ onGoogle, onGuest, onEmailAuth, status, error }) {
   return (
     <div className="flex-1 flex flex-col justify-center px-8 max-w-sm mx-auto w-full text-center">
       <BrandMark className="mx-auto mb-5" />
-      <h1 className="text-3xl font-black text-ink font-display mb-1">Training log</h1>
-      <p className="text-ink-faint mb-8">Create a profile to save your plans and progress.</p>
+      <h1 className="text-3xl font-black text-ink font-display mb-1">سجل التمرين</h1>
+      <p className="text-ink-faint mb-8">أنشئ ملفاً شخصياً لحفظ خططك وتقدّمك.</p>
       {error && <p className="text-danger text-sm mb-3">{error}</p>}
-      <button disabled={status === "syncing"} onClick={onGoogle} className="w-full py-3.5 rounded-xl text-base font-bold bg-charge text-paper mb-2.5 disabled:opacity-30 hover:bg-charge-strong transition-colors">Continue with Google</button>
-      <button disabled={status === "syncing"} onClick={() => setMode("email")} className="w-full py-3.5 rounded-xl text-base font-bold bg-card border border-line text-ink mb-2.5 disabled:opacity-30 hover:bg-mist transition-colors">Continue with email</button>
-      <button disabled={status === "syncing"} onClick={onGuest} className="w-full py-3 text-sm font-bold text-ink-faint disabled:opacity-30">Try it first, no account</button>
+      <button disabled={status === "syncing"} onClick={onGoogle} className="w-full py-3.5 rounded-xl text-base font-bold bg-charge text-paper mb-2.5 disabled:opacity-30 hover:bg-charge-strong transition-colors">المتابعة عبر جوجل</button>
+      <button disabled={status === "syncing"} onClick={() => setMode("email")} className="w-full py-3.5 rounded-xl text-base font-bold bg-card border border-line text-ink mb-2.5 disabled:opacity-30 hover:bg-mist transition-colors">المتابعة بالبريد الإلكتروني</button>
+      <button disabled={status === "syncing"} onClick={onGuest} className="w-full py-3 text-sm font-bold text-ink-faint disabled:opacity-30">جرّبه أولاً، بدون حساب</button>
     </div>
   );
 }
 
 function TutorialStep({ onDone }) {
   const slides = [
-    { icon: Star, color: "text-charge fill-charge", bg: "bg-charge-soft", title: "Focus muscles", text: "A star marks a focus muscle — that's where extra volume goes on purpose." },
-    { icon: Dumbbell, color: "text-w4-strong", bg: "bg-w4-soft", title: "Plate colors, made simple", text: "Weight means the load where your last rep is the last one you can do with good form. Plate colors up top remind you any time." },
-    { icon: RefreshCw, color: "text-w5-strong", bg: "bg-w5-soft", title: "Built-in progression", text: "Around week 6-8 you'll get a nudge to rotate 1-2 exercises per muscle — research-backed, not random switching." },
-    { icon: Home, color: "text-w2-strong", bg: "bg-w2-soft", title: "Guided sessions", text: "Hit \"Start workout\" for a full guided session — warm-up, set tracking, rest timers, all handled for you." },
+    { icon: Star, color: "text-charge fill-charge", bg: "bg-charge-soft", title: "عضلات التركيز", text: "النجمة تُشير إلى عضلة تركيز — هناك يذهب الحجم الإضافي عن قصد." },
+    { icon: Dumbbell, color: "text-w4-strong", bg: "bg-w4-soft", title: "ألوان الأوزان، ببساطة", text: "الوزن يعني الحمل الذي يكون فيه تكرارك الأخير هو آخر تكرار تقدر تؤديه بأداء صحيح. ألوان الأوزان في الأعلى تذكّرك دائماً." },
+    { icon: RefreshCw, color: "text-w5-strong", bg: "bg-w5-soft", title: "تقدّم مدمج", text: "حوالي الأسبوع 6-8 ستحصل على تذكير لتبديل 1-2 تمرين لكل عضلة — مبني على أبحاث، وليس تبديلاً عشوائياً." },
+    { icon: Home, color: "text-w2-strong", bg: "bg-w2-soft", title: "جلسات موجّهة", text: "اضغط \"بدء التمرين\" لجلسة موجّهة كاملة — إحماء، تتبّع المجموعات، مؤقتات الراحة، كل شيء يُدار من أجلك." },
   ];
   const [i, setI] = useState(0);
   const slide = slides[i];
@@ -960,19 +1021,44 @@ function TutorialStep({ onDone }) {
         <p className="text-ink-soft text-base">{slide.text}</p>
       </div>
       <div className="px-8 pb-8 max-w-sm mx-auto w-full flex gap-2">
-        {i > 0 && <button onClick={() => setI((v) => v - 1)} className="px-6 py-3.5 rounded-xl text-base font-bold text-ink-soft border border-line">Back</button>}
-        <button onClick={() => (i < slides.length - 1 ? setI((v) => v + 1) : onDone())} className="flex-1 py-3.5 rounded-xl text-base font-bold bg-charge text-paper hover:bg-charge-strong transition-colors">{i < slides.length - 1 ? "Next" : "Start using the app"}</button>
+        {i > 0 && <button onClick={() => setI((v) => v - 1)} className="px-6 py-3.5 rounded-xl text-base font-bold text-ink-soft border border-line">رجوع</button>}
+        <button onClick={() => (i < slides.length - 1 ? setI((v) => v + 1) : onDone())} className="flex-1 py-3.5 rounded-xl text-base font-bold bg-charge text-paper hover:bg-charge-strong transition-colors">{i < slides.length - 1 ? "التالي" : "ابدأ استخدام التطبيق"}</button>
       </div>
     </div>
   );
 }
 
-function OnboardingFlow({ step, onGoogle, onGuest, onEmailAuth, onTutorialDone, status, error }) {
+function ChoosePlanStep({ onChoose }) {
+  const [levelId, setLevelId] = useState("established");
+  return (
+    <div className="flex-1 flex flex-col px-6 py-8 max-w-sm mx-auto w-full">
+      <h1 className="text-2xl font-black text-ink font-display mb-1.5">اختر خطة بداية</h1>
+      <p className="text-ink-faint text-sm mb-6">يمكنك التبديل لخطة أخرى، إضافة المزيد، أو تعديل أي شيء لاحقاً — هذا فقط للبدء.</p>
+      <div className="space-y-2.5 flex-1 overflow-y-auto">
+        {LEVELS.map((l) => (
+          <button key={l.id} type="button" onClick={() => setLevelId(l.id)} className={`w-full text-left rounded-2xl border p-4 transition ${levelId === l.id ? "border-charge bg-charge-soft" : "border-line bg-card"}`}>
+            <div className="flex items-center gap-2">
+              <span className={`w-4 h-4 rounded-full border-2 flex items-center justify-center shrink-0 ${levelId === l.id ? "border-charge" : "border-line"}`}>{levelId === l.id && <span className="w-2 h-2 rounded-full bg-charge" />}</span>
+              <span className="font-bold text-ink text-base">{l.name}</span>
+              <span className="text-xs text-ink-faint ml-auto font-mono">{l.days.length} أيام/أسبوع</span>
+            </div>
+            <p className="text-sm text-ink-faint mt-1 pl-6">{l.blurb}</p>
+          </button>
+        ))}
+      </div>
+      <button onClick={() => onChoose(levelId)} className="w-full py-3.5 rounded-xl text-base font-bold bg-charge text-paper hover:bg-charge-strong transition-colors mt-6">البدء بهذه الخطة</button>
+    </div>
+  );
+}
+
+function OnboardingFlow({ step, onGoogle, onGuest, onEmailAuth, onTutorialDone, onChoosePlan, status, error }) {
   return (
     <div className="fixed inset-0 z-50 bg-paper flex flex-col">
       {step === "auth"
         ? <AuthStep onGoogle={onGoogle} onGuest={onGuest} onEmailAuth={onEmailAuth} status={status} error={error} />
-        : <TutorialStep onDone={onTutorialDone} />}
+        : step === "choosePlan"
+          ? <ChoosePlanStep onChoose={onChoosePlan} />
+          : <TutorialStep onDone={onTutorialDone} />}
     </div>
   );
 }
@@ -1050,12 +1136,12 @@ function findLibraryMatch(name) {
 function youtubeEmbedUrl(id) { return `https://www.youtube-nocookie.com/embed/${id}`; }
 
 const STRETCHES = [
-  { name: "Doorway chest stretch", freq: "After every session", why: "Loosens tight chest/front delts pulling shoulders forward", hold: "30 sec/side" },
-  { name: "Lat stretch (overhead, side lean)", freq: "After every session", why: "Lats pull shoulders down and in — this counters it", hold: "30 sec/side" },
-  { name: "Kneeling hip flexor stretch", freq: "Daily, even on rest days", why: "Tight hip flexors tilt the pelvis and flatten glute activation", hold: "30-40 sec/side" },
-  { name: "Couch stretch (rear-foot elevated)", freq: "Daily, even on rest days", why: "Deeper hip flexor + quad stretch, same posture goal", hold: "30-40 sec/side" },
-  { name: "Cat-cow", freq: "Daily, even on rest days", why: "Spinal mobility, counters a stiff, rounded upper back", hold: "8-10 slow reps" },
-  { name: "Child's pose reach", freq: "After every session", why: "Decompresses the lower back after loaded lifting", hold: "45 sec" },
+  { name: "تمديد الصدر عند الباب", freq: "بعد كل جلسة", why: "يرخي الصدر والكتف الأمامي المشدودين اللذين يسحبان الكتفين للأمام", hold: "30 ثانية/جانب" },
+  { name: "تمديد اللاتس (فوق الرأس، ميل جانبي)", freq: "بعد كل جلسة", why: "اللاتس يسحب الكتفين للأسفل وللداخل — هذا يعاكس ذلك", hold: "30 ثانية/جانب" },
+  { name: "تمديد عضلات الورك بالركوع", freq: "يومياً، حتى في أيام الراحة", why: "عضلات الورك المشدودة تُميل الحوض وتقلل تفعيل المؤخرة", hold: "30-40 ثانية/جانب" },
+  { name: "تمديد الأريكة (رفع القدم الخلفية)", freq: "يومياً، حتى في أيام الراحة", why: "تمديد أعمق لعضلات الورك والفخذ، نفس هدف القوام", hold: "30-40 ثانية/جانب" },
+  { name: "القط-البقرة", freq: "يومياً، حتى في أيام الراحة", why: "مرونة العمود الفقري، يعاكس تصلّب وانحناء أعلى الظهر", hold: "8-10 تكرارات بطيئة" },
+  { name: "وضعية الطفل الممدودة", freq: "بعد كل جلسة", why: "يخفف الضغط عن أسفل الظهر بعد الرفع بالأوزان", hold: "45 ثانية" },
 ];
 
 function fmtClock(s) { const m = Math.floor(Math.max(0, s) / 60), r = Math.max(0, s) % 60; return `${m}:${String(r).padStart(2, "0")}`; }
@@ -1180,10 +1266,10 @@ function WorkoutSession({ day, onExit }) {
   const tier = WEIGHT_INFO[currentEx?.weight] || WEIGHT_INFO.Medium;
   const isLoadPhase = phase === "work" || phase === "rest";
   const accent = isLoadPhase
-    ? { label: phase === "work" ? "Working set" : "Rest", text: tier.accent, solid: tier.solid, hex: tier.hex }
+    ? { label: phase === "work" ? "مجموعة العمل" : "راحة", text: tier.accent, solid: tier.solid, hex: tier.hex }
     : phase === "stretch" || phase === "done"
-      ? { label: phase === "stretch" ? "Cool down" : "Complete", text: "text-charge", solid: "bg-charge", hex: "#d9a441" }
-      : { label: "Warm-up", text: "text-ink", solid: "bg-ink", hex: "#8a8578" };
+      ? { label: phase === "stretch" ? "تهدئة" : "اكتمل", text: "text-charge", solid: "bg-charge", hex: "#d9a441" }
+      : { label: "إحماء", text: "text-ink", solid: "bg-ink", hex: "#8a8578" };
 
   return (
     <div className="fixed inset-0 z-50 bg-paper text-ink flex flex-col overflow-hidden">
@@ -1207,7 +1293,7 @@ function WorkoutSession({ day, onExit }) {
         <button onClick={() => setConfirmExit(true)} className="p-2 -ml-2 rounded-full text-ink/60 hover:text-ink hover:bg-ink/10"><X className="w-5 h-5" /></button>
         <div className="text-center">
           <p className={`text-xs font-bold uppercase tracking-widest ${accent.text}`}>{accent.label}</p>
-          <p className="text-ink/40 text-xs font-mono">{fmtClock(elapsed)} elapsed</p>
+          <p className="text-ink/40 text-xs font-mono">{fmtClock(elapsed)} منقضية</p>
         </div>
         <button onClick={toggleMuted} className="p-2 -mr-2 rounded-full text-ink/60 hover:text-ink hover:bg-ink/10 w-9 h-9 flex items-center justify-center">{muted ? <VolumeX className="w-4 h-4" /> : <Volume2 className="w-4 h-4" />}</button>
       </div>
@@ -1226,30 +1312,30 @@ function WorkoutSession({ day, onExit }) {
           {phase === "warmupChoice" && (
             <>
               <div className="w-16 h-16 rounded-full bg-ink/10 flex items-center justify-center mb-4"><Flame className="w-7 h-7 text-ink/70" /></div>
-              <h2 className="text-xl font-black font-display mb-2">Warmed up already?</h2>
-              <p className="text-ink/50 mb-6 max-w-xs text-sm">If not, warming up matters — 5 minutes minimum, no skipping once it starts.</p>
-              <button onClick={beginWarmupTimer} className="w-full max-w-xs px-8 py-3.5 rounded-2xl text-base font-black bg-ink text-paper mb-2.5">I need to warm up</button>
-              <button onClick={skipWarmup} className="w-full max-w-xs px-8 py-3.5 rounded-2xl text-base font-black bg-ink/10 text-ink hover:bg-ink/15 transition-colors">I already warmed up</button>
+              <h2 className="text-xl font-black font-display mb-2">سخّنت بالفعل؟</h2>
+              <p className="text-ink/50 mb-6 max-w-xs text-sm">إن لم تكن قد فعلت، الإحماء مهم — 5 دقائق كحد أدنى، لا تخطي بعد البدء.</p>
+              <button onClick={beginWarmupTimer} className="w-full max-w-xs px-8 py-3.5 rounded-2xl text-base font-black bg-ink text-paper mb-2.5">أحتاج للإحماء</button>
+              <button onClick={skipWarmup} className="w-full max-w-xs px-8 py-3.5 rounded-2xl text-base font-black bg-ink/10 text-ink hover:bg-ink/15 transition-colors">سخّنت بالفعل</button>
             </>
           )}
 
           {phase === "warmup" && (
             <>
-              <p className="text-ink/60 text-sm mb-2">Warm up before Day starts — this step is mandatory.</p>
+              <p className="text-ink/60 text-sm mb-2">الإحماء قبل بدء اليوم — هذه الخطوة إلزامية.</p>
               <div className="text-[clamp(3rem,11vw,5rem)] font-black font-mono mb-4 tabular-nums">{fmtClock(warmupLeft)}</div>
               <button
                 disabled={warmupLeft > 0}
                 onClick={completeWarmup}
                 className={`px-6 py-3.5 rounded-2xl text-base font-black transition-all relative ${warmupLeft > 0 ? "bg-ink/10 text-ink/40" : "bg-ink text-paper tl-ring"}`}
               >
-                {warmupLeft > 0 ? `Warming up… ${fmtClock(warmupLeft)} left` : "✓ Warm-up done — Start Day"}
+                {warmupLeft > 0 ? `جارٍ الإحماء… ${fmtClock(warmupLeft)} متبقية` : "✓ انتهى الإحماء — ابدأ اليوم"}
               </button>
             </>
           )}
 
           {phase === "work" && currentEx && (
             <>
-              <p className="text-ink/40 text-xs font-bold font-mono mb-1">Exercise {exIndex + 1} of {totalExercises}</p>
+              <p className="text-ink/40 text-xs font-bold font-mono mb-1">التمرين {exIndex + 1} من {totalExercises}</p>
               {currentEx.image
                 ? <img src={currentEx.image} alt="" className="w-[clamp(72px,14vw,104px)] h-[clamp(72px,14vw,104px)] rounded-2xl object-cover mb-3" />
                 : <div className="w-[clamp(72px,14vw,104px)] h-[clamp(72px,14vw,104px)] rounded-2xl bg-ink/10 mb-3 flex items-center justify-center"><Dumbbell className="w-8 h-8 text-ink/30" /></div>}
@@ -1271,35 +1357,35 @@ function WorkoutSession({ day, onExit }) {
                 style={{ width: "clamp(180px, 36vw, 260px)", height: "clamp(180px, 36vw, 260px)", boxShadow: "inset 0 0 0 10px rgba(16,15,13,0.18), inset 0 0 0 12px rgba(242,238,228,0.10), 0 18px 40px rgba(0,0,0,0.45)" }}
                 className={`rounded-full ${tier.solid} text-white flex flex-col items-center justify-center gap-1 active:scale-95 transition-transform tl-ring relative`}
               >
-                <span className="text-[clamp(1.1rem,3vw,1.5rem)] font-black font-display">Set {setsDone + 1}</span>
-                <span className="text-sm font-bold opacity-75 font-mono">of {currentEx.sets}</span>
-                <span className="text-xs font-bold mt-2 uppercase tracking-wide opacity-90">Tap when done</span>
+                <span className="text-[clamp(1.1rem,3vw,1.5rem)] font-black font-display">مجموعة {setsDone + 1}</span>
+                <span className="text-sm font-bold opacity-75 font-mono">من {currentEx.sets}</span>
+                <span className="text-xs font-bold mt-2 uppercase tracking-wide opacity-90">اضغط عند الانتهاء</span>
               </button>
             </>
           )}
 
           {phase === "rest" && currentEx && (
             <>
-              <p className="text-ink/50 text-sm mb-2">Rest before set {setsDone + 1}</p>
+              <p className="text-ink/50 text-sm mb-2">راحة قبل المجموعة {setsDone + 1}</p>
               <div className={`text-[clamp(3rem,11vw,5rem)] font-black font-mono mb-4 tabular-nums ${accent.text}`}>{fmtClock(restLeft)}</div>
               <p className="text-ink/40 text-sm mb-6">{currentEx.name}</p>
-              <button onClick={skipRest} className="px-6 py-2.5 rounded-xl text-sm font-bold text-ink/60 border border-ink/20 hover:bg-ink/10 transition-colors">Skip rest</button>
+              <button onClick={skipRest} className="px-6 py-2.5 rounded-xl text-sm font-bold text-ink/60 border border-ink/20 hover:bg-ink/10 transition-colors">تخطي الراحة</button>
             </>
           )}
 
           {phase === "stretch" && (
             <>
-              <h2 className="text-xl font-black font-display mb-1">Cool down</h2>
-              <p className="text-ink/50 text-sm mb-4">Optional, but worth it for posture.</p>
+              <h2 className="text-xl font-black font-display mb-1">تهدئة</h2>
+              <p className="text-ink/50 text-sm mb-4">اختياري، لكنه يستحق العناء لأجل القوام.</p>
               <div className="w-full max-w-sm space-y-2 mb-6 text-left">
-                {STRETCHES.filter((s) => s.freq === "After every session").map((s) => (
+                {STRETCHES.filter((s) => s.freq === "بعد كل جلسة").map((s) => (
                   <div key={s.name} className="rounded-2xl bg-ink/10 px-4 py-3">
                     <p className="font-bold text-sm">{s.name} <span className="text-ink/40 font-normal">· {s.hold}</span></p>
                     <p className="text-ink/40 text-xs">{s.why}</p>
                   </div>
                 ))}
               </div>
-              <button onClick={finishStretch} className="px-8 py-3.5 rounded-2xl text-base font-black bg-charge text-paper hover:bg-charge-strong transition-colors">Done stretching</button>
+              <button onClick={finishStretch} className="px-8 py-3.5 rounded-2xl text-base font-black bg-charge text-paper hover:bg-charge-strong transition-colors">انتهيت من التمديد</button>
             </>
           )}
 
@@ -1311,10 +1397,10 @@ function WorkoutSession({ day, onExit }) {
                   <div key={i} className="tl-confetti absolute w-2 h-3 rounded-sm" style={{ left: `${10 + i * 8}%`, top: "10%", background: ["#ded7c5", "#57c07a", "#e8c247", "#6fa8dd", "#ef6a5f"][i % 5], animationDelay: `${i * 0.05}s` }} />
                 ))}
               </div>
-              <h2 className="text-2xl font-black font-display mb-1.5">Day complete!</h2>
-              <p className="text-ink/50 text-sm mb-1 font-mono">{totalExercises} exercises · {fmtClock(elapsed)}</p>
-              <p className="text-ink/40 text-sm mb-6">Great session. Go rest up.</p>
-              <button onClick={onExit} className="px-8 py-3.5 rounded-2xl text-base font-black bg-charge text-paper hover:bg-charge-strong transition-colors">Finish</button>
+              <h2 className="text-2xl font-black font-display mb-1.5">اكتمل اليوم!</h2>
+              <p className="text-ink/50 text-sm mb-1 font-mono">{totalExercises} تمارين · {fmtClock(elapsed)}</p>
+              <p className="text-ink/40 text-sm mb-6">جلسة رائعة. اذهب لترتاح.</p>
+              <button onClick={onExit} className="px-8 py-3.5 rounded-2xl text-base font-black bg-charge text-paper hover:bg-charge-strong transition-colors">إنهاء</button>
             </>
           )}
         </div>
@@ -1323,11 +1409,11 @@ function WorkoutSession({ day, onExit }) {
       {confirmExit && (
         <div className="fixed inset-0 z-10 bg-black/70 flex items-center justify-center p-6" onClick={() => setConfirmExit(false)}>
           <div className="bg-card backdrop-blur rounded-2xl p-5 max-w-xs w-full border border-line" onClick={(e) => e.stopPropagation()}>
-            <p className="font-bold mb-1">End this workout?</p>
-            <p className="text-ink-faint text-sm mb-4">Your progress in this session won't be saved.</p>
+            <p className="font-bold mb-1">إنهاء هذا التمرين؟</p>
+            <p className="text-ink-faint text-sm mb-4">تقدّمك في هذه الجلسة لن يُحفظ.</p>
             <div className="flex gap-2">
-              <button onClick={() => setConfirmExit(false)} className="flex-1 py-2.5 rounded-xl text-sm font-bold bg-mist hover:bg-mist/70 transition-colors">Keep going</button>
-              <button onClick={onExit} className="flex-1 py-2.5 rounded-xl text-sm font-bold bg-danger text-white hover:bg-danger/85 transition-colors">End</button>
+              <button onClick={() => setConfirmExit(false)} className="flex-1 py-2.5 rounded-xl text-sm font-bold bg-mist hover:bg-mist/70 transition-colors">متابعة التمرين</button>
+              <button onClick={onExit} className="flex-1 py-2.5 rounded-xl text-sm font-bold bg-danger text-white hover:bg-danger/85 transition-colors">إنهاء</button>
             </div>
           </div>
         </div>
@@ -1346,7 +1432,7 @@ function LevelBubble({ size = 40 }) {
           <animate attributeName="cx" values="55;38;72;55" dur="1.6s" repeatCount="indefinite" />
         </circle>
       </svg>
-      <span className="text-xs font-bold text-ink-soft tracking-wide uppercase font-display">Finding balance…</span>
+      <span className="text-xs font-bold text-ink-soft tracking-wide uppercase font-display">جارٍ إيجاد التوازن…</span>
     </div>
   );
 }
@@ -1395,7 +1481,7 @@ function usePwaInstall() {
 }
 
 export default function TrainingLog() {
-  const [plans, setPlans] = useState([makePlan("Starter plan", "starter", null), makePlan("Author's plan", "established", "Spirito (app creator)")]);
+  const [plans, setPlans] = useState([]);
   const [activePlanId, setActivePlanId] = useState(null);
   const [activeDay, setActiveDay] = useState(null);
   const pageFromUrl = () => {
@@ -1420,6 +1506,7 @@ export default function TrainingLog() {
   const [manageDaysOpen, setManageDaysOpen] = useState(false);
   const [syncOpen, setSyncOpen] = useState(false);
   const [shareOpen, setShareOpen] = useState(null); // plan being shared, or null
+  const [planSwitcherOpen, setPlanSwitcherOpen] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(null);
   const [confirmDeletePlan, setConfirmDeletePlan] = useState(null);
   const [loaded, setLoaded] = useState(false);
@@ -1428,6 +1515,7 @@ export default function TrainingLog() {
   const [firebaseUser, setFirebaseUser] = useState(null);
   const [needsName, setNeedsName] = useState(false);
   const [syncStatus, setSyncStatus] = useState("idle");
+  const [remoteChecked, setRemoteChecked] = useState(false);
   const [syncError, setSyncError] = useState(false);
   const [isOnline, setIsOnline] = useState(typeof navigator === "undefined" ? true : navigator.onLine);
   const fileInputRef = useRef(null);
@@ -1481,11 +1569,18 @@ export default function TrainingLog() {
           if (!remote?.firstName) setNeedsName(true);
         } catch (err) { /* fall back to local */ }
       }
+      setRemoteChecked(true);
     });
     return () => unsub();
   }, []);
 
   useEffect(() => { if (loaded && !activePlanId && plans.length) { setActivePlanId(plans[0].id); setActiveDay(plans[0].days[0].id); } }, [loaded, activePlanId, plans]);
+  // Safety net: never get stuck on a loading screen if onboarding was
+  // marked done (from an earlier session) but somehow no plan exists.
+  // Waits for the remote-account check to settle first, so a returning
+  // signed-in user doesn't get bounced to "choose a plan" during the
+  // brief moment before their synced plans have loaded in.
+  useEffect(() => { if (loaded && remoteChecked && onboardStep === "done" && plans.length === 0) setOnboardStep("choosePlan"); }, [loaded, remoteChecked, onboardStep, plans]);
 
   const persist = useCallback((nextPlans, nextActiveId) => {
     (async () => { try { const res = await window.storage.set(STORAGE_KEY, JSON.stringify({ plans: nextPlans, activePlanId: nextActiveId }), false); setSaveError(!res); } catch (err) { setSaveError(true); } })();
@@ -1548,20 +1643,27 @@ export default function TrainingLog() {
   const doSignIn = async () => {
     setSyncStatus("syncing"); setSyncError(false);
     try { await signInGoogle(); setSyncStatus("idle"); setSyncOpen(false); }
-    catch (err) { setSyncStatus("idle"); setSyncError(authErrorMessage(err, "Couldn't sign in — try again.")); }
+    catch (err) { setSyncStatus("idle"); setSyncError(authErrorMessage(err, "تعذّر تسجيل الدخول — حاول مرة أخرى.")); }
   };
   const doUpgrade = async () => {
     setSyncStatus("syncing"); setSyncError(false);
     try { await upgradeToGoogle(); setSyncStatus("idle"); setSyncOpen(false); }
-    catch (err) { setSyncStatus("idle"); setSyncError(authErrorMessage(err, "Couldn't sign in — try again.")); }
+    catch (err) { setSyncStatus("idle"); setSyncError(authErrorMessage(err, "تعذّر تسجيل الدخول — حاول مرة أخرى.")); }
   };
   const doSignOut = async () => { try { await signOutUser(); } catch (err) { /* ignore */ } setSyncOpen(false); };
   const goTutorial = () => setOnboardStep("tutorial");
   const finishOnboard = async () => { setOnboardStep("done"); try { await window.storage.set(ONBOARD_KEY, JSON.stringify(true), false); } catch (err) { /* ignore */ } };
+  const afterTutorial = () => { if (plans.length === 0) setOnboardStep("choosePlan"); else finishOnboard(); };
+  const chooseFirstPlan = (levelId) => {
+    const level = LEVELS.find((l) => l.id === levelId) || LEVELS[0];
+    const p = makePlan(level.name, levelId, level.id === "established" ? "Spirito (app creator)" : null);
+    setPlans([p]); setActivePlanId(p.id); setActiveDay(p.days[0].id);
+    finishOnboard();
+  };
   const [onboardErrorMsg, setOnboardErrorMsg] = useState("");
   const doOnboardGoogle = async () => {
     setSyncStatus("syncing"); setOnboardErrorMsg("");
-    try { await signInGoogle(); setSyncStatus("idle"); goTutorial(); } catch (err) { setSyncStatus("idle"); setOnboardErrorMsg(authErrorMessage(err, "Couldn't sign in — try again.")); }
+    try { await signInGoogle(); setSyncStatus("idle"); goTutorial(); } catch (err) { setSyncStatus("idle"); setOnboardErrorMsg(authErrorMessage(err, "تعذّر تسجيل الدخول — حاول مرة أخرى.")); }
   };
   const doOnboardGuest = async () => {
     setSyncStatus("syncing");
@@ -1571,7 +1673,7 @@ export default function TrainingLog() {
   const doOnboardEmail = async (email, pw, isSignUp) => {
     setSyncStatus("syncing"); setOnboardErrorMsg("");
     try { isSignUp ? await signUpEmail(email, pw) : await signInEmail(email, pw); setSyncStatus("idle"); goTutorial(); }
-    catch (err) { setSyncStatus("idle"); setOnboardErrorMsg(authErrorMessage(err, isSignUp ? "Couldn't create that account." : "Couldn't sign in — check your details.")); }
+    catch (err) { setSyncStatus("idle"); setOnboardErrorMsg(authErrorMessage(err, isSignUp ? "تعذّر إنشاء هذا الحساب." : "تعذّر تسجيل الدخول — تحقق من بياناتك.")); }
   };
   const saveName = async (first, family) => {
     try { await saveProfileInfo(firebaseUser.uid, first, family, firebaseUser.email || null); } catch (err) { /* ignore */ }
@@ -1579,13 +1681,13 @@ export default function TrainingLog() {
   };
 
   if (!loaded || onboardStep === null) return <div className="w-full min-h-screen bg-paper flex items-center justify-center"><LevelBubble /></div>;
-  if (onboardStep !== "done") return <OnboardingFlow step={onboardStep} onGoogle={doOnboardGoogle} onGuest={doOnboardGuest} onEmailAuth={doOnboardEmail} onTutorialDone={finishOnboard} status={syncStatus} error={onboardErrorMsg} />;
+  if (onboardStep !== "done") return <OnboardingFlow step={onboardStep} onGoogle={doOnboardGoogle} onGuest={doOnboardGuest} onEmailAuth={doOnboardEmail} onTutorialDone={afterTutorial} onChoosePlan={chooseFirstPlan} status={syncStatus} error={onboardErrorMsg} />;
   if (!plan || !day) return <div className="w-full min-h-screen bg-paper flex items-center justify-center"><LevelBubble /></div>;
 
   const focusCount = day.exercises.filter((e) => e.focus).length;
   const levelInfo = LEVELS.find((l) => l.id === plan.level);
   const weeksIn = Math.floor((Date.now() - new Date(plan.blockStartDate).getTime()) / (7 * 24 * 3600 * 1000));
-  const PAGE_TITLE = { train: "Train", community: "Community", profile: "You" };
+  const PAGE_TITLE = { train: "التمرين", community: "المجتمع", profile: "أنت" };
 
   return (
     <div className="w-full min-h-screen bg-paper text-ink overflow-x-hidden pb-24">
@@ -1598,12 +1700,12 @@ export default function TrainingLog() {
           <div className="flex items-center gap-2 shrink-0">
             {pwa.canInstall && (
               <button onClick={pwa.promptInstall} className="inline-flex items-center gap-1.5 text-xs font-bold text-paper bg-charge rounded-full pl-2.5 pr-3 py-1.5 hover:bg-charge-strong transition-colors">
-                <PlusSquare className="w-3.5 h-3.5" /> Install app
+                <PlusSquare className="w-3.5 h-3.5" /> تثبيت التطبيق
               </button>
             )}
             {!isOnline && (
               <span className="inline-flex items-center gap-1.5 text-xs font-bold text-ink-faint bg-mist rounded-full pl-2 pr-2.5 py-1">
-                <WifiOff className="w-3.5 h-3.5" /> Offline
+                <WifiOff className="w-3.5 h-3.5" /> غير متصل
               </span>
             )}
           </div>
@@ -1615,11 +1717,15 @@ export default function TrainingLog() {
         {page === "train" && (
           <>
             <div className="mb-4">
-              <p className="text-[11px] font-bold tracking-[0.14em] text-ink-faint uppercase mb-1">{levelInfo?.name || "Custom plan"}{plan.author ? ` · by ${plan.author}` : ""}</p>
-              <div className="flex items-center justify-between gap-3">
+              <p className="text-[11px] font-bold tracking-[0.14em] text-ink-faint uppercase mb-1">{levelInfo?.name || "خطة مخصصة"}{plan.author ? ` · بواسطة ${plan.author}` : ""}</p>
+              {plans.length > 1 ? (
+                <button onClick={() => setPlanSwitcherOpen(true)} className="w-full flex items-center justify-between gap-3 -ml-1 pl-1 pr-2.5 py-1 rounded-xl hover:bg-mist transition-colors">
+                  <h1 className="text-3xl font-black tracking-tight text-ink truncate font-display">{plan.name}</h1>
+                  <span className="shrink-0 inline-flex items-center gap-1 text-xs font-bold text-charge bg-charge-soft rounded-full pl-2 pr-2.5 py-1.5"><RefreshCw className="w-3 h-3" /> تبديل <ChevronDown className="w-3.5 h-3.5" /></span>
+                </button>
+              ) : (
                 <h1 className="text-3xl font-black tracking-tight text-ink truncate font-display">{plan.name}</h1>
-                {plans.length > 1 && <button onClick={() => setPage("profile")} className="shrink-0 text-sm font-bold text-ink-faint hover:text-ink">Switch</button>}
-              </div>
+              )}
             </div>
 
             <PlateLegend />
@@ -1628,20 +1734,20 @@ export default function TrainingLog() {
               <div className="mb-4 rounded-2xl bg-w4-soft border border-w4-ring p-4 flex items-start gap-3">
                 <RefreshCw className="w-5 h-5 text-w4-strong shrink-0 mt-0.5" />
                 <div className="flex-1">
-                  <p className="text-sm text-w4-strong"><span className="font-bold">Week {weeksIn} on this plan.</span> Good point to rotate 1-2 exercises per muscle for joint variety.</p>
-                  <button onClick={startNewBlock} className="mt-1.5 text-sm font-bold text-w4-strong hover:opacity-75">Start new block →</button>
+                  <p className="text-sm text-w4-strong"><span className="font-bold">الأسبوع {weeksIn} في هذه الخطة.</span> نقطة جيدة لتبديل 1-2 تمرين لكل عضلة لتنويع المفاصل.</p>
+                  <button onClick={startNewBlock} className="mt-1.5 text-sm font-bold text-w4-strong hover:opacity-75">بدء مرحلة جديدة ←</button>
                 </div>
               </div>
             )}
 
             <button onClick={() => !isReadOnly && guard(() => setManageDaysOpen(true))()} disabled={isReadOnly} className="w-full flex items-center justify-between mb-3 px-1 py-1 disabled:cursor-default">
-              <span className="inline-flex items-center gap-1.5 text-sm font-bold text-ink-soft"><Calendar className="w-4 h-4" /> {plan.days.length} days / week</span>
-              {!isReadOnly && <span className="text-sm font-bold text-ink-faint flex items-center gap-1">Edit <Pencil className="w-3.5 h-3.5" /></span>}
+              <span className="inline-flex items-center gap-1.5 text-sm font-bold text-ink-soft"><Calendar className="w-4 h-4" /> {plan.days.length} أيام / أسبوع</span>
+              {!isReadOnly && <span className="text-sm font-bold text-ink-faint flex items-center gap-1">تعديل <Pencil className="w-3.5 h-3.5" /></span>}
             </button>
 
-            <nav className="flex gap-2 overflow-x-auto tl-scroll -mx-4 px-4 pb-1 mb-4">
+            <nav className="grid gap-2 mb-4" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(6.5rem, 1fr))" }}>
               {plan.days.map((d) => (
-                <button key={d.id} onClick={() => setActiveDay(d.id)} className={`shrink-0 min-w-[7.5rem] rounded-2xl px-3.5 py-3 text-left transition ${activeDay === d.id ? "bg-charge text-paper" : "bg-card text-ink-soft border border-line hover:border-ink-faint"}`}>
+                <button key={d.id} onClick={() => setActiveDay(d.id)} className={`rounded-2xl px-3.5 py-3 text-left transition ${activeDay === d.id ? "bg-charge text-paper" : "bg-card text-ink-soft border border-line hover:border-ink-faint"}`}>
                   <div className={`text-[11px] font-bold uppercase tracking-wide font-mono ${activeDay === d.id ? "text-paper/60" : "text-ink-faint"}`}>{d.label}</div>
                   <div className="text-base font-black leading-tight truncate">{d.title}</div>
                 </button>
@@ -1649,10 +1755,10 @@ export default function TrainingLog() {
             </nav>
 
             <div className="mb-5">
-              <p className="text-base text-ink-soft mb-3"><span className="font-bold text-ink">{day.tagline}</span><span className="text-line mx-1.5">·</span>{focusCount} focus, {day.exercises.length - focusCount} maintenance</p>
+              <p className="text-base text-ink-soft mb-3"><span className="font-bold text-ink">{day.tagline}</span><span className="text-line mx-1.5">·</span>{focusCount} تركيز، {day.exercises.length - focusCount} صيانة</p>
               {day.exercises.length > 0 && (
                 <button onClick={() => setSessionOpen(true)} className="w-full py-4 rounded-2xl text-lg font-black bg-charge text-paper flex items-center justify-center gap-2 active:scale-[0.98] transition-transform shadow-lg shadow-charge/20 hover:bg-charge-strong">
-                  <Dumbbell className="w-5 h-5" /> Start workout
+                  <Dumbbell className="w-5 h-5" /> بدء التمرين
                 </button>
               )}
             </div>
@@ -1661,19 +1767,19 @@ export default function TrainingLog() {
               {day.exercises.map((exItem) =>
                 confirmDelete === exItem.id ? (
                   <div key={exItem.id} className="rounded-2xl border border-danger/30 bg-danger-soft p-4 flex items-center justify-between gap-3 sm:col-span-2">
-                    <p className="text-sm text-danger">Delete <span className="font-bold">{exItem.name}</span>?</p>
-                    <div className="flex gap-2 shrink-0"><button onClick={() => setConfirmDelete(null)} className="px-3 py-2 rounded-xl text-sm font-bold text-ink-soft hover:bg-mist">Cancel</button><button onClick={() => deleteExercise(exItem.id)} className="px-3 py-2 rounded-xl text-sm font-bold bg-danger text-white">Delete</button></div>
+                    <p className="text-sm text-danger">حذف <span className="font-bold">{exItem.name}</span>؟</p>
+                    <div className="flex gap-2 shrink-0"><button onClick={() => setConfirmDelete(null)} className="px-3 py-2 rounded-xl text-sm font-bold text-ink-soft hover:bg-mist">إلغاء</button><button onClick={() => deleteExercise(exItem.id)} className="px-3 py-2 rounded-xl text-sm font-bold bg-danger text-white">حذف</button></div>
                   </div>
                 ) : (
                   <ExerciseCard key={exItem.id} ex={exItem} readOnly={isReadOnly} onOpenEdit={guard(() => setModal({ mode: "edit", exercise: exItem }))} onDelete={guard(() => setConfirmDelete(exItem.id))} onQuickPhoto={guard((dataUrl) => quickPhoto(exItem.id, dataUrl))} />
                 )
               )}
-              {day.exercises.length === 0 && <div className="sm:col-span-2 rounded-2xl border border-dashed border-line p-8 text-center text-base text-ink-faint">No exercises on this day yet.</div>}
-              {!isReadOnly && <button onClick={guard(() => setModal({ mode: "add", exercise: emptyForm }))} className="sm:col-span-2 w-full rounded-2xl border-2 border-dashed border-line py-4 text-base font-bold text-ink-faint hover:border-charge hover:text-charge transition-colors flex items-center justify-center gap-1.5"><Plus className="w-5 h-5" /> Add exercise</button>}
+              {day.exercises.length === 0 && <div className="sm:col-span-2 rounded-2xl border border-dashed border-line p-8 text-center text-base text-ink-faint">لا توجد تمارين في هذا اليوم بعد.</div>}
+              {!isReadOnly && <button onClick={guard(() => setModal({ mode: "add", exercise: emptyForm }))} className="sm:col-span-2 w-full rounded-2xl border-2 border-dashed border-line py-4 text-base font-bold text-ink-faint hover:border-charge hover:text-charge transition-colors flex items-center justify-center gap-1.5"><Plus className="w-5 h-5" /> إضافة تمرين</button>}
             </div>
 
             <footer className="mt-8 pt-4 border-t border-line text-xs text-ink-faint">
-              {saveError ? "Changes aren't saving right now — edits may be lost on refresh." : firebaseUser ? "Saved on this device and synced." : "Saved on this device."}
+              {saveError ? "التغييرات لا تُحفظ الآن — قد تُفقد التعديلات عند التحديث." : firebaseUser ? "محفوظة على هذا الجهاز ومتزامنة." : "محفوظة على هذا الجهاز."}
             </footer>
           </>
         )}
@@ -1682,30 +1788,30 @@ export default function TrainingLog() {
 
         {page === "profile" && (
           <div className="space-y-6">
-            <h1 className="text-3xl font-black tracking-tight text-ink font-display">You</h1>
+            <h1 className="text-3xl font-black tracking-tight text-ink font-display">أنت</h1>
 
             <section>
               <div className="flex items-center justify-between mb-2.5">
-                <h2 className="text-[11px] font-bold uppercase tracking-[0.14em] text-ink-faint">My plans</h2>
-                <button onClick={guard(() => setNewPlanOpen(true))} className="text-sm font-bold text-charge flex items-center gap-1 hover:text-charge-strong"><Plus className="w-4 h-4" /> New</button>
+                <h2 className="text-[11px] font-bold uppercase tracking-[0.14em] text-ink-faint">خططي</h2>
+                <button onClick={guard(() => setNewPlanOpen(true))} className="text-sm font-bold text-charge flex items-center gap-1 hover:text-charge-strong"><Plus className="w-4 h-4" /> جديدة</button>
               </div>
               <div className="space-y-2">
                 {plans.map((p) => (
                   confirmDeletePlan === p.id ? (
                     <div key={p.id} className="rounded-2xl border border-danger/30 bg-danger-soft p-4 flex items-center justify-between gap-3">
-                      <p className="text-sm text-danger">Delete <span className="font-bold">{p.name}</span>?</p>
-                      <div className="flex gap-2 shrink-0"><button onClick={() => setConfirmDeletePlan(null)} className="px-3 py-2 rounded-xl text-sm font-bold text-ink-soft hover:bg-mist">Cancel</button><button onClick={() => deletePlan(p.id)} className="px-3 py-2 rounded-xl text-sm font-bold bg-danger text-white">Delete</button></div>
+                      <p className="text-sm text-danger">حذف <span className="font-bold">{p.name}</span>؟</p>
+                      <div className="flex gap-2 shrink-0"><button onClick={() => setConfirmDeletePlan(null)} className="px-3 py-2 rounded-xl text-sm font-bold text-ink-soft hover:bg-mist">إلغاء</button><button onClick={() => deletePlan(p.id)} className="px-3 py-2 rounded-xl text-sm font-bold bg-danger text-white">حذف</button></div>
                     </div>
                   ) : (
                     <div key={p.id} className={`rounded-2xl p-4 flex items-center gap-3 ${p.id === activePlanId ? "bg-charge" : "bg-card border border-line"}`}>
                       <button onClick={() => switchPlan(p.id)} className="flex-1 min-w-0 text-left">
                         <p className={`font-black truncate ${p.id === activePlanId ? "text-paper" : "text-ink"}`}>{p.name}</p>
-                        <p className={`text-xs ${p.id === activePlanId ? "text-paper/65" : "text-ink-faint"}`}>{LEVELS.find((l) => l.id === p.level)?.name || "Custom"} · {p.days.length} days/wk{p.author ? ` · by ${p.author}` : ""}{p.shareCode ? " · sharing via code" : ""}{p.publicSubmitted ? " · submitted" : ""}</p>
+                        <p className={`text-xs ${p.id === activePlanId ? "text-paper/65" : "text-ink-faint"}`}>{LEVELS.find((l) => l.id === p.level)?.name || "مخصصة"} · {p.days.length} أيام/أسبوع{p.author ? ` · بواسطة ${p.author}` : ""}{p.shareCode ? " · مُشاركة برمز" : ""}{p.publicSubmitted ? " · مُرسلة" : ""}</p>
                       </button>
                       {p.id === activePlanId && <span className="shrink-0 w-7 h-7 rounded-full bg-paper flex items-center justify-center"><Check className="w-4 h-4 text-charge" /></span>}
-                      <button onClick={() => { if (!isOnline) return; if (!canEdit) { setSyncOpen(true); return; } setShareOpen(p); }} disabled={!isOnline} className={`shrink-0 p-2 rounded-lg disabled:opacity-30 ${p.id === activePlanId ? "text-paper/60 hover:text-paper" : "text-ink-faint hover:text-charge"}`} aria-label="Share plan"><Send className="w-4 h-4" /></button>
+                      <button onClick={() => { if (!isOnline) return; if (!canEdit) { setSyncOpen(true); return; } setShareOpen(p); }} disabled={!isOnline} className={`shrink-0 p-2 rounded-lg disabled:opacity-30 ${p.id === activePlanId ? "text-paper/60 hover:text-paper" : "text-ink-faint hover:text-charge"}`} aria-label="مشاركة الخطة"><Send className="w-4 h-4" /></button>
                       {plans.length > 1 && (
-                        <button onClick={guard(() => setConfirmDeletePlan(p.id))} className={`shrink-0 p-2 rounded-lg ${p.id === activePlanId ? "text-paper/60 hover:text-paper" : "text-ink-faint hover:text-danger"}`} aria-label="Delete plan"><Trash2 className="w-4 h-4" /></button>
+                        <button onClick={guard(() => setConfirmDeletePlan(p.id))} className={`shrink-0 p-2 rounded-lg ${p.id === activePlanId ? "text-paper/60 hover:text-paper" : "text-ink-faint hover:text-danger"}`} aria-label="حذف الخطة"><Trash2 className="w-4 h-4" /></button>
                       )}
                     </div>
                   )
@@ -1719,37 +1825,41 @@ export default function TrainingLog() {
             {isAdminUser && <AdminPanel user={firebaseUser} />}
 
             <section>
-              <h2 className="text-[11px] font-bold uppercase tracking-[0.14em] text-ink-faint mb-2.5">Profile</h2>
+              <h2 className="text-[11px] font-bold uppercase tracking-[0.14em] text-ink-faint mb-2.5">الملف الشخصي</h2>
               <button onClick={() => isOnline && setSyncOpen(true)} disabled={!isOnline} className="w-full flex items-center justify-between gap-2 bg-card border border-line rounded-2xl px-4 py-3.5 disabled:opacity-40 hover:border-ink-faint transition-colors">
-                <span className="flex items-center gap-2.5"><Cloud className={`w-5 h-5 ${canEdit ? "text-charge" : "text-w2"}`} /><span className="font-bold text-ink text-base">{canEdit ? firebaseUser.displayName : "Trying it out — sign in to save"}</span></span>
+                <span className="flex items-center gap-2.5"><Cloud className={`w-5 h-5 ${canEdit ? "text-charge" : "text-w2"}`} /><span className="font-bold text-ink text-base">{canEdit ? firebaseUser.displayName : "تجربة فقط — سجّل الدخول للحفظ"}</span></span>
                 <ChevronRight className="w-4 h-4 text-ink-faint" />
               </button>
             </section>
 
             {!pwa.isStandalone && (
               <section>
-                <h2 className="text-[11px] font-bold uppercase tracking-[0.14em] text-ink-faint mb-2.5">Get the app</h2>
-                {pwa.canInstall ? (
-                  <button onClick={pwa.promptInstall} className="w-full flex items-center justify-between gap-2 bg-card border border-line rounded-2xl px-4 py-3.5 hover:border-charge transition-colors">
-                    <span className="flex items-center gap-2.5"><PlusSquare className="w-5 h-5 text-charge" /><span className="font-bold text-ink text-base">Install on this device</span></span>
+                <h2 className="text-[11px] font-bold uppercase tracking-[0.14em] text-ink-faint mb-2.5">الحصول على التطبيق</h2>
+                <div className="space-y-2">
+                  <a href={APK_DOWNLOAD_URL} download className="w-full flex items-center justify-between gap-2 bg-card border border-line rounded-2xl px-4 py-3.5 hover:border-charge transition-colors">
+                    <span className="flex items-center gap-2.5"><Download className="w-5 h-5 text-charge" /><span className="font-bold text-ink text-base">تحميل لأندرويد (APK)</span></span>
                     <ChevronRight className="w-4 h-4 text-ink-faint" />
-                  </button>
-                ) : pwa.isIos ? (
-                  <div className="rounded-2xl border border-line bg-card px-4 py-3.5 text-sm text-ink-soft flex items-start gap-2.5">
-                    <Share className="w-4 h-4 shrink-0 mt-0.5 text-ink-faint" />
-                    <span>Tap the <span className="font-bold text-ink">Share</span> icon in Safari, then <span className="font-bold text-ink">Add to Home Screen</span>.</span>
-                  </div>
-                ) : (
-                  <p className="text-sm text-ink-faint px-1">Your browser will offer an install option once it's ready — look for it in the address bar or browser menu.</p>
-                )}
+                  </a>
+                  {pwa.canInstall ? (
+                    <button onClick={pwa.promptInstall} className="w-full flex items-center justify-between gap-2 bg-card border border-line rounded-2xl px-4 py-3.5 hover:border-charge transition-colors">
+                      <span className="flex items-center gap-2.5"><PlusSquare className="w-5 h-5 text-charge" /><span className="font-bold text-ink text-base">التثبيت على هذا الجهاز</span></span>
+                      <ChevronRight className="w-4 h-4 text-ink-faint" />
+                    </button>
+                  ) : pwa.isIos ? (
+                    <div className="rounded-2xl border border-line bg-card px-4 py-3.5 text-sm text-ink-soft flex items-start gap-2.5">
+                      <Share className="w-4 h-4 shrink-0 mt-0.5 text-ink-faint" />
+                      <span>اضغط أيقونة <span className="font-bold text-ink">المشاركة</span> في سفاري، ثم <span className="font-bold text-ink">إضافة إلى الشاشة الرئيسية</span>.</span>
+                    </div>
+                  ) : null}
+                </div>
               </section>
             )}
 
             <section>
-              <h2 className="text-[11px] font-bold uppercase tracking-[0.14em] text-ink-faint mb-2.5">Backup</h2>
+              <h2 className="text-[11px] font-bold uppercase tracking-[0.14em] text-ink-faint mb-2.5">نسخة احتياطية</h2>
               <div className="flex gap-2">
-                <button onClick={guard(exportData)} className="flex-1 py-3 rounded-2xl text-sm font-bold text-ink-soft bg-card border border-line flex items-center justify-center gap-1.5 hover:border-ink-faint transition-colors"><Download className="w-4 h-4" /> Export</button>
-                <button onClick={guard(() => fileInputRef.current?.click())} className="flex-1 py-3 rounded-2xl text-sm font-bold text-ink-soft bg-card border border-line flex items-center justify-center gap-1.5 hover:border-ink-faint transition-colors"><Upload className="w-4 h-4" /> Import</button>
+                <button onClick={guard(exportData)} className="flex-1 py-3 rounded-2xl text-sm font-bold text-ink-soft bg-card border border-line flex items-center justify-center gap-1.5 hover:border-ink-faint transition-colors"><Download className="w-4 h-4" /> تصدير</button>
+                <button onClick={guard(() => fileInputRef.current?.click())} className="flex-1 py-3 rounded-2xl text-sm font-bold text-ink-soft bg-card border border-line flex items-center justify-center gap-1.5 hover:border-ink-faint transition-colors"><Upload className="w-4 h-4" /> استيراد</button>
               </div>
               <input ref={fileInputRef} type="file" accept="application/json" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) importData(f); e.target.value = ""; }} />
             </section>
@@ -1760,9 +1870,9 @@ export default function TrainingLog() {
       <nav className="fixed bottom-0 inset-x-0 z-30 bg-card border-t border-line" style={{ paddingBottom: "env(safe-area-inset-bottom)" }}>
         <div className="grid grid-cols-3 max-w-2xl mx-auto">
           {[
-            { id: "train", label: "Train", Icon: Home },
-            { id: "community", label: "Community", Icon: Users },
-            { id: "profile", label: "You", Icon: User },
+            { id: "train", label: "التمرين", Icon: Home },
+            { id: "community", label: "المجتمع", Icon: Users },
+            { id: "profile", label: "أنت", Icon: User },
           ].map(({ id, label, Icon }) => (
             <button key={id} onClick={() => setPage(id)} className="relative flex flex-col items-center gap-1 py-2.5 active:opacity-70 transition-opacity">
               {page === id && <span className="absolute top-0 left-1/2 -translate-x-1/2 w-8 h-0.5 rounded-full bg-charge" />}
@@ -1773,11 +1883,12 @@ export default function TrainingLog() {
         </div>
       </nav>
 
-      {modal && <ExerciseModal title={modal.mode === "add" ? "Add exercise" : "Edit exercise"} initial={modal.exercise} onCancel={() => setModal(null)} onSave={(form) => { if (modal.mode === "add") addExercise(form); else { updateExercise({ ...form, id: modal.exercise.id }); setModal(null); } }} />}
+      {modal && <ExerciseModal title={modal.mode === "add" ? "إضافة تمرين" : "تعديل تمرين"} initial={modal.exercise} onCancel={() => setModal(null)} onSave={(form) => { if (modal.mode === "add") addExercise(form); else { updateExercise({ ...form, id: modal.exercise.id }); setModal(null); } }} />}
       {newPlanOpen && <NewPlanModal onCancel={() => setNewPlanOpen(false)} onCreate={createPlan} />}
       {manageDaysOpen && <ManageDaysModal days={plan.days} onCancel={() => setManageDaysOpen(false)} onSave={saveDays} />}
       {syncOpen && <ProfileModal user={firebaseUser} onCancel={() => setSyncOpen(false)} onSignIn={doSignIn} onUpgrade={doUpgrade} onSignOut={doSignOut} status={syncStatus} error={syncError} />}
       {shareOpen && <ShareModal plan={shareOpen} user={firebaseUser} onCancel={() => setShareOpen(null)} onPatchPlan={(patch) => patchPlan(shareOpen.id, patch)} />}
+      {planSwitcherOpen && <PlanSwitcherSheet plans={plans} activePlanId={activePlanId} levels={LEVELS} onSwitch={(id) => { switchPlan(id); setPlanSwitcherOpen(false); }} onManage={() => { setPlanSwitcherOpen(false); setPage("profile"); }} onCancel={() => setPlanSwitcherOpen(false)} />}
       {sessionOpen && day && <WorkoutSession day={day} onExit={() => setSessionOpen(false)} />}
       {needsName && canEdit && <NameModal onSave={saveName} />}
     </div>
