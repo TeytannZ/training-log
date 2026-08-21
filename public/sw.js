@@ -4,7 +4,7 @@
 // output filenames per build, so a hardcoded list would go stale and
 // break installs. Instead this caches whatever gets fetched
 // successfully, and serves that cached copy when offline.
-const CACHE_NAME = "training-log-v1";
+const CACHE_NAME = "training-log-v2";
 
 self.addEventListener("install", (event) => {
   self.skipWaiting();
