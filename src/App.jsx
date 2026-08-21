@@ -57,11 +57,11 @@ const FIREBASE_CONFIG = {
 // on sight, so the app reuses that real system instead of an invented
 // one. See index.css for the actual hex values behind each class. ----
 const WEIGHT_INFO = {
-  Light: { bg: "bg-w1-soft", text: "text-w1-strong", ring: "ring-w1-ring", dot: "bg-w1", solid: "bg-w1-strong", accent: "text-w1", hex: "#ded7c5", plate: "White", desc: "يفشل عند ~15-20 تكرار" },
-  "Light-Medium": { bg: "bg-w2-soft", text: "text-w2-strong", ring: "ring-w2-ring", dot: "bg-w2", solid: "bg-w2-strong", accent: "text-w2", hex: "#57c07a", plate: "Green", desc: "يفشل عند ~12-18 تكرار" },
-  Medium: { bg: "bg-w3-soft", text: "text-w3-strong", ring: "ring-w3-ring", dot: "bg-w3", solid: "bg-w3-strong", accent: "text-w3", hex: "#e8c247", plate: "Yellow", desc: "يفشل عند ~8-15 تكرار" },
-  "Medium-Heavy": { bg: "bg-w4-soft", text: "text-w4-strong", ring: "ring-w4-ring", dot: "bg-w4", solid: "bg-w4-strong", accent: "text-w4", hex: "#6fa8dd", plate: "Blue", desc: "يفشل عند ~6-10 تكرار" },
-  Heavy: { bg: "bg-w5-soft", text: "text-w5-strong", ring: "ring-w5-ring", dot: "bg-w5", solid: "bg-w5-strong", accent: "text-w5", hex: "#ef6a5f", plate: "Red", desc: "يفشل عند ~4-8 تكرار" },
+  Light: { bg: "bg-w1-soft", text: "text-w1-strong", ring: "ring-w1-ring", dot: "bg-w1", solid: "bg-w1-strong", accent: "text-w1", hex: "#ded7c5", plate: "White", desc: "خفيف — سهل" },
+  "Light-Medium": { bg: "bg-w2-soft", text: "text-w2-strong", ring: "ring-w2-ring", dot: "bg-w2", solid: "bg-w2-strong", accent: "text-w2", hex: "#57c07a", plate: "Green", desc: "بين الخفيف والمتوسط" },
+  Medium: { bg: "bg-w3-soft", text: "text-w3-strong", ring: "ring-w3-ring", dot: "bg-w3", solid: "bg-w3-strong", accent: "text-w3", hex: "#e8c247", plate: "Yellow", desc: "متوسط — مجهود واضح" },
+  "Medium-Heavy": { bg: "bg-w4-soft", text: "text-w4-strong", ring: "ring-w4-ring", dot: "bg-w4", solid: "bg-w4-strong", accent: "text-w4", hex: "#6fa8dd", plate: "Blue", desc: "بين المتوسط والثقيل" },
+  Heavy: { bg: "bg-w5-soft", text: "text-w5-strong", ring: "ring-w5-ring", dot: "bg-w5", solid: "bg-w5-strong", accent: "text-w5", hex: "#ef6a5f", plate: "Red", desc: "ثقيل — قرب أقصى مجهود" },
 };
 const WEIGHT_OPTIONS = ["Light", "Light-Medium", "Medium", "Medium-Heavy", "Heavy"];
 const STORAGE_KEY = "training-log-plans-v4";
@@ -728,7 +728,7 @@ function ExerciseCard({ ex: item, onOpenEdit, onDelete, onQuickPhoto, readOnly }
           <div className="flex items-start justify-between gap-1.5">
             <button type="button" onClick={() => setDetailOpen(true)} className="text-left min-w-0 flex-1">
               <h3 className="font-black text-ink text-[15px] leading-snug line-clamp-2">{exLabel(item.name)}</h3>
-              <p className="text-xs text-ink-faint truncate mt-0.5">{muscleLabel(item.muscle)}</p>
+              <p className="text-xs font-bold text-ink-faint truncate mt-0.5">{muscleLabel(item.muscle)}</p>
             </button>
             {!readOnly && (
               <div className="flex gap-0.5 shrink-0 -mr-1.5 -mt-1">
@@ -740,7 +740,7 @@ function ExerciseCard({ ex: item, onOpenEdit, onDelete, onQuickPhoto, readOnly }
           <div className="mt-auto pt-2 flex flex-wrap items-center gap-1.5">
             <PlateBadge weight={item.weight} />
             <span className="inline-flex items-center gap-1 text-xs font-mono font-bold text-ink-soft bg-mist rounded-full px-2.5 py-1">{item.sets} × {item.reps}</span>
-            <span className="inline-flex items-center gap-1 text-xs font-mono text-ink-faint"><Clock className="w-3 h-3" /> {item.rest}</span>
+            <span className="inline-flex items-center gap-1 text-xs font-mono font-bold text-ink-faint"><Clock className="w-3 h-3" /> {item.rest}</span>
           </div>
         </div>
       </div>
@@ -847,7 +847,7 @@ function NameModal({ onSave }) {
   );
 }
 
-function ProfileModal({ user, onCancel, onSignIn, onUpgrade, onSignOut, status, error }) {
+function ProfileModal({ user, authorName, onCancel, onSignIn, onUpgrade, onSignOut, status, error }) {
   const anon = user && user.isAnonymous;
   return (
     <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/60 backdrop-blur-[2px]" onClick={onCancel}>
@@ -860,7 +860,7 @@ function ProfileModal({ user, onCancel, onSignIn, onUpgrade, onSignOut, status, 
           {user && !anon ? (
             <div className="space-y-3">
               <div className="rounded-2xl bg-charge-soft border border-charge/20 p-4 text-sm text-charge flex items-center gap-2">
-                <Check className="w-4 h-4 shrink-0" /> تم تسجيل الدخول باسم <span className="font-bold">{user.displayName}</span>. تتم مزامنة الخطط تلقائياً.
+                <Check className="w-4 h-4 shrink-0" /> تم تسجيل الدخول باسم <span className="font-bold">{authorName}</span>. تتم مزامنة الخطط تلقائياً.
               </div>
               <button onClick={onSignOut} className="w-full py-3.5 rounded-xl text-base font-bold text-danger border border-danger/30 hover:bg-danger-soft">تسجيل الخروج</button>
             </div>
@@ -879,7 +879,7 @@ function ProfileModal({ user, onCancel, onSignIn, onUpgrade, onSignOut, status, 
   );
 }
 
-function ShareModal({ plan, user, onCancel, onPatchPlan }) {
+function ShareModal({ plan, user, authorName, onCancel, onPatchPlan }) {
   const [description, setDescription] = useState(plan.description || "");
   const [pubState, setPubState] = useState("idle");
   const [codeState, setCodeState] = useState("idle");
@@ -893,7 +893,7 @@ function ShareModal({ plan, user, onCancel, onPatchPlan }) {
     try {
       const ok = await checkAndBumpRateLimit(user.uid, "submissions", 3, 60 * 60 * 1000);
       if (!ok) { setPubState("limited"); return; }
-      const id = await submitPlanForReview(plan, user.uid, user.displayName, description); onPatchPlan({ publicShareId: id, publicApproved: false }); setPubState("sent");
+      const id = await submitPlanForReview(plan, user.uid, authorName, description); onPatchPlan({ publicShareId: id, publicApproved: false }); setPubState("sent");
     }
     catch (err) { setPubState("error"); }
   };
@@ -905,7 +905,7 @@ function ShareModal({ plan, user, onCancel, onPatchPlan }) {
 
   const generateCode = async () => {
     setCodeState("sending");
-    try { const code = await shareplanByCode(plan, user.uid, user.displayName, description); onPatchPlan({ shareCode: code }); setCodeState("idle"); }
+    try { const code = await shareplanByCode(plan, user.uid, authorName, description); onPatchPlan({ shareCode: code }); setCodeState("idle"); }
     catch (err) { setCodeState("error"); }
   };
   const revokeCode = async () => {
@@ -1197,6 +1197,8 @@ function AdminPanel({ user }) {
         <span className="shrink-0 text-xs font-bold text-charge">{copied ? "تم النسخ" : "نسخ"}</span>
       </button>
 
+      <ExerciseLibraryAdmin />
+
       <div className="rounded-2xl border border-line bg-card p-4">
         <p className="text-xs font-bold text-ink-faint uppercase tracking-wide mb-3">إرسالات قيد المراجعة</p>
         {pending === null && <p className="text-sm text-ink-faint flex items-center gap-2"><Loader2 className="w-4 h-4 animate-spin" /> جارٍ التحميل…</p>}
@@ -1308,7 +1310,7 @@ function CommunityPage({ onFork, isOnline }) {
   );
 }
 
-function ContactPanel({ user }) {
+function ContactPanel({ user, authorName }) {
   const [body, setBody] = useState("");
   const [image, setImage] = useState(null);
   const [link, setLink] = useState("");
@@ -1331,7 +1333,7 @@ function ContactPanel({ user }) {
     try {
       const ok = await checkAndBumpRateLimit(user.uid, "messages", 5, 15 * 60 * 1000);
       if (!ok) { setState("limited"); return; }
-      await sendMessage(user.uid, user.displayName, body.trim(), image, link.trim() || null, null);
+      await sendMessage(user.uid, authorName, body.trim(), image, link.trim() || null, null);
       setBody(""); setImage(null); setLink(""); setState("idle");
     } catch (err) { setState("error"); }
   };
@@ -1978,6 +1980,7 @@ export default function TrainingLog() {
   const [onboardStep, setOnboardStep] = useState(null); // null=deciding, "auth", "tutorial", "done"
   const [saveError, setSaveError] = useState(false);
   const [firebaseUser, setFirebaseUser] = useState(null);
+  const [profileName, setProfileName] = useState(null); // the mandatory first+family name, NOT the Google account name — used everywhere a person's name is shown/attributed, since email/password accounts often have no display name at all
   const [needsName, setNeedsName] = useState(false);
   const [syncStatus, setSyncStatus] = useState("idle");
   const [remoteChecked, setRemoteChecked] = useState(false);
@@ -2005,7 +2008,7 @@ export default function TrainingLog() {
   // When connection comes back, push whatever changed while offline
   useEffect(() => {
     if (isOnline && loaded && firebaseUser) {
-      saveUserData(firebaseUser.uid, firebaseUser.displayName, { plans, activePlanId }).catch(() => setSyncError(true));
+      saveUserData(firebaseUser.uid, authorName, { plans, activePlanId }).catch(() => setSyncError(true));
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isOnline]);
@@ -2033,6 +2036,7 @@ export default function TrainingLog() {
             const aid = remote.data.activePlanId || remote.data.plans[0].id;
             setActivePlanId(aid); setActiveDay(remote.data.plans.find((p) => p.id === aid)?.days[0]?.id);
           }
+          if (remote?.firstName) setProfileName(`${remote.firstName} ${remote.familyName || ""}`.trim());
           if (!remote?.firstName) setNeedsName(true);
         } catch (err) { /* fall back to local */ }
       }
@@ -2053,7 +2057,7 @@ export default function TrainingLog() {
     (async () => { try { const res = await window.storage.set(STORAGE_KEY, JSON.stringify({ plans: nextPlans, activePlanId: nextActiveId }), false); setSaveError(!res); } catch (err) { setSaveError(true); } })();
     if (firebaseUser) {
       clearTimeout(pushTimer.current);
-      pushTimer.current = setTimeout(() => { saveUserData(firebaseUser.uid, firebaseUser.displayName, { plans: nextPlans, activePlanId: nextActiveId }).catch(() => setSyncError(true)); }, 1200);
+      pushTimer.current = setTimeout(() => { saveUserData(firebaseUser.uid, authorName, { plans: nextPlans, activePlanId: nextActiveId }).catch(() => setSyncError(true)); }, 1200);
     }
   }, [firebaseUser]);
 
@@ -2075,12 +2079,12 @@ export default function TrainingLog() {
   const saveDays = (newDays) => { setPlans((prev) => prev.map((p) => (p.id !== plan.id ? p : { ...p, days: newDays }))); setManageDaysOpen(false); if (!newDays.find((d) => d.id === activeDay)) setActiveDay(newDays[0].id); };
 
   const createPlan = (name, levelId) => {
-    const p = makePlan(name, levelId, firebaseUser?.displayName || "You");
+    const p = makePlan(name, levelId, authorName || "أنت");
     setPlans((prev) => [...prev, p]); setActivePlanId(p.id); setActiveDay(p.days[0].id);
     setNewPlanOpen(false); setPage("train");
   };
   const forkPlan = (source) => {
-    const p = { ...makePlan(`${source.name} (copy)`, "established", firebaseUser?.displayName || "You"), days: deepClone(source.days) };
+    const p = { ...makePlan(`${source.name} (copy)`, "established", authorName || "أنت"), days: deepClone(source.days) };
     setPlans((prev) => [...prev, p]); setActivePlanId(p.id); setActiveDay(p.days[0].id);
     setPage("train");
   };
@@ -2144,8 +2148,10 @@ export default function TrainingLog() {
   };
   const saveName = async (first, family) => {
     try { await saveProfileInfo(firebaseUser.uid, first, family, firebaseUser.email || null); } catch (err) { /* ignore */ }
+    setProfileName(`${first} ${family}`.trim());
     setNeedsName(false);
   };
+  const authorName = profileName || firebaseUser?.displayName || "";
 
   // Unread-message badge for the bottom nav — realtime, live-updates
   // without needing to open the You/Admin page first.
@@ -2234,7 +2240,7 @@ export default function TrainingLog() {
             </nav>
 
             <div className="mb-5">
-              <p className="text-base text-ink-soft mb-3"><span className="font-bold text-ink">{day.tagline}</span><span className="text-line mx-1.5">·</span>{focusCount} تركيز، {day.exercises.length - focusCount} ثانوية</p>
+              <p className="text-base text-ink-soft mb-3"><span className="font-bold text-ink">{day.tagline}</span><span className="text-line mx-1.5">·</span>{focusCount} أساسية، {day.exercises.length - focusCount} ثانوية</p>
               {day.exercises.length > 0 && (
                 <button onClick={() => setSessionOpen(true)} className="w-full py-4 rounded-2xl text-lg font-black bg-charge text-paper flex items-center justify-center gap-2 active:scale-[0.98] transition-transform shadow-lg shadow-charge/20 hover:bg-charge-strong">
                   <Dumbbell className="w-5 h-5" /> بدء التمرين
@@ -2271,7 +2277,7 @@ export default function TrainingLog() {
 
             <section>
               <button onClick={() => isOnline && setSyncOpen(true)} disabled={!isOnline} className="w-full flex items-center justify-between gap-2 bg-card border border-line rounded-2xl px-4 py-3.5 disabled:opacity-40 hover:border-ink-faint transition-colors">
-                <span className="flex items-center gap-2.5"><Cloud className={`w-5 h-5 ${canEdit ? "text-charge" : "text-w2"}`} /><span className="font-bold text-ink text-base">{canEdit ? firebaseUser.displayName : "تجربة فقط — سجّل الدخول للحفظ"}</span></span>
+                <span className="flex items-center gap-2.5"><Cloud className={`w-5 h-5 ${canEdit ? "text-charge" : "text-w2"}`} /><span className="font-bold text-ink text-base">{canEdit ? authorName : "تجربة فقط — سجّل الدخول للحفظ"}</span></span>
                 <ChevronRight className="w-4 h-4 text-ink-faint rotate-180" />
               </button>
             </section>
@@ -2316,7 +2322,7 @@ export default function TrainingLog() {
               </div>
             </section>
 
-            {canEdit && <ContactPanel user={firebaseUser} />}
+            {canEdit && <ContactPanel user={firebaseUser} authorName={authorName} />}
 
             {isAdminUser && <AdminPanel user={firebaseUser} />}
 
@@ -2372,8 +2378,8 @@ export default function TrainingLog() {
       {modal && <ExerciseModal title={modal.mode === "add" ? "إضافة تمرين" : "تعديل تمرين"} initial={modal.exercise} onCancel={() => setModal(null)} onSave={(form) => { if (modal.mode === "add") addExercise(form); else { updateExercise({ ...form, id: modal.exercise.id }); setModal(null); } }} />}
       {newPlanOpen && <NewPlanModal onCancel={() => setNewPlanOpen(false)} onCreate={createPlan} />}
       {manageDaysOpen && <ManageDaysModal days={plan.days} onCancel={() => setManageDaysOpen(false)} onSave={saveDays} />}
-      {syncOpen && <ProfileModal user={firebaseUser} onCancel={() => setSyncOpen(false)} onSignIn={doSignIn} onUpgrade={doUpgrade} onSignOut={doSignOut} status={syncStatus} error={syncError} />}
-      {shareOpen && <ShareModal plan={shareOpen} user={firebaseUser} onCancel={() => setShareOpen(null)} onPatchPlan={(patch) => patchPlan(shareOpen.id, patch)} />}
+      {syncOpen && <ProfileModal user={firebaseUser} authorName={authorName} onCancel={() => setSyncOpen(false)} onSignIn={doSignIn} onUpgrade={doUpgrade} onSignOut={doSignOut} status={syncStatus} error={syncError} />}
+      {shareOpen && <ShareModal plan={shareOpen} user={firebaseUser} authorName={authorName} onCancel={() => setShareOpen(null)} onPatchPlan={(patch) => patchPlan(shareOpen.id, patch)} />}
       {planSwitcherOpen && <PlanSwitcherSheet plans={plans} activePlanId={activePlanId} levels={LEVELS} onSwitch={(id) => { switchPlan(id); setPlanSwitcherOpen(false); }} onManage={() => { setPlanSwitcherOpen(false); setPage("profile"); }} onCancel={() => setPlanSwitcherOpen(false)} />}
       {sessionOpen && day && <WorkoutSession day={day} onExit={() => setSessionOpen(false)} />}
       {needsName && canEdit && <NameModal onSave={saveName} />}
