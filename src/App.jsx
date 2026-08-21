@@ -6,7 +6,7 @@ import {
   Plus, Pencil, Trash2, Camera, X, Check, Star, Dumbbell,
   Loader2, ChevronDown, Search, Download, Upload, ChevronRight,
   Cloud, RefreshCw, AlertTriangle, Sparkles, Users, Send, Copy, Calendar,
-  Home, User, WifiOff, Clock, Flame, Volume2, VolumeX, Menu, Share, PlusSquare,
+  Home, User, WifiOff, Clock, Flame, Volume2, VolumeX, Menu, Share,
 } from "lucide-react";
 
 // The original app used `window.storage`, an API that only exists inside
@@ -280,7 +280,7 @@ async function saveProfileInfo(uid, firstName, familyName, email) {
 // permission by itself, since every write it enables is re-checked by the
 // rules regardless of what this file says.
 const ADMIN_UIDS = [
-  "TIQ1Ja4qDTRSdr9IPcjiO2A0DFf1"
+  "TIQ1Ja4qDTRSdr9IPcjiO2A0DFf1", // Spirito
 ];
 function isAdmin(user) { return !!user && ADMIN_UIDS.includes(user.uid); }
 
@@ -309,14 +309,23 @@ async function fetchCommunityPlans() {
   const snap = await getDocs(q);
   return snap.docs.map((d) => ({ id: d.id, ...d.data() }));
 }
-async function submitPlanForReview(plan, uid, name) {
+async function submitPlanForReview(plan, uid, name, description) {
   const clean = cleanPlanForSharing(plan);
-  await addDoc(collection(dbase, "sharedPlans"), { ...clean, ownerId: uid, author: name, visibility: "public", approved: false, submittedAt: serverTimestamp() });
+  const ref = await addDoc(collection(dbase, "sharedPlans"), { ...clean, ownerId: uid, author: name, description: description || "", visibility: "public", approved: false, recommended: false, announced: false, submittedAt: serverTimestamp(), updatedAt: serverTimestamp() });
+  return ref.id;
 }
-async function shareplanByCode(plan, uid, name) {
+// Pushes the owner's current local edits onto an already-submitted public
+// doc, instead of creating a duplicate. `announce` controls whether it
+// shows an "Updated" badge in Community — sometimes a fix is worth
+// flagging, sometimes it's not worth bothering people over.
+async function updateSharedPlanContent(shareId, plan, description, announce) {
+  const clean = cleanPlanForSharing(plan);
+  await setDoc(doc(dbase, "sharedPlans", shareId), { ...clean, description: description || "", updatedAt: serverTimestamp(), announced: !!announce }, { merge: true });
+}
+async function shareplanByCode(plan, uid, name, description) {
   const clean = cleanPlanForSharing(plan);
   const code = makeShareCode();
-  await setDoc(doc(dbase, "sharedPlans", code), { ...clean, ownerId: uid, author: name, visibility: "shared", approved: true, submittedAt: serverTimestamp() });
+  await setDoc(doc(dbase, "sharedPlans", code), { ...clean, ownerId: uid, author: name, description: description || "", visibility: "shared", approved: true, submittedAt: serverTimestamp(), updatedAt: serverTimestamp() });
   return code;
 }
 async function stopSharingPlan(shareId) {
@@ -332,13 +341,50 @@ async function fetchPendingSubmissions() {
   const snap = await getDocs(q);
   return snap.docs.map((d) => ({ id: d.id, ...d.data() }));
 }
+async function fetchLiveCommunityPlansForAdmin() {
+  const q = query(collection(dbase, "sharedPlans"), where("visibility", "==", "public"), where("approved", "==", true));
+  const snap = await getDocs(q);
+  return snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+}
+// Admin can pin/unpin/recommend/delete ANY public submission, at any
+// time — not just the ones still waiting on first review. "Unpin" keeps
+// the doc (so it can be re-approved later) but pulls it out of Community
+// immediately; "delete" removes it outright.
 async function adminSetApproved(planId, approved) {
   await setDoc(doc(dbase, "sharedPlans", planId), { approved }, { merge: true });
+}
+async function adminSetRecommended(planId, recommended) {
+  await setDoc(doc(dbase, "sharedPlans", planId), { recommended }, { merge: true });
+}
+async function adminClearAnnounced(planId) {
+  await setDoc(doc(dbase, "sharedPlans", planId), { announced: false }, { merge: true });
 }
 async function adminDeleteSharedPlan(planId) {
   await deleteDoc(doc(dbase, "sharedPlans", planId));
 }
 
+// ---- Messages (contact / feedback, e.g. "this plan has a small issue") ----
+// One collection, each doc a single message + at most one reply. Simple
+// on purpose — this is for occasional feedback, not a live chat.
+async function sendMessage(uid, name, body, planContext) {
+  await addDoc(collection(dbase, "messages"), {
+    fromUid: uid, fromName: name, body,
+    planId: planContext?.id || null, planName: planContext?.name || null,
+    status: "open", reply: null, createdAt: serverTimestamp(), repliedAt: null,
+  });
+}
+async function fetchMyMessages(uid) {
+  const q = query(collection(dbase, "messages"), where("fromUid", "==", uid));
+  const snap = await getDocs(q);
+  return snap.docs.map((d) => ({ id: d.id, ...d.data() })).sort((a, b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0));
+}
+async function fetchAllMessages() {
+  const snap = await getDocs(collection(dbase, "messages"));
+  return snap.docs.map((d) => ({ id: d.id, ...d.data() })).sort((a, b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0));
+}
+async function replyToMessage(id, replyText) {
+  await setDoc(doc(dbase, "messages", id), { reply: replyText, status: "replied", repliedAt: serverTimestamp() }, { merge: true });
+}
 
 // ---- Shared UI ----
 
@@ -352,6 +398,14 @@ const sheetClass = "bg-card w-full sm:max-w-md sm:rounded-2xl rounded-t-2xl max-
 // is used in the legend, where a rounded swatch scans faster in a list.
 const WEIGHT_LABEL_AR = { Light: "خفيف", "Light-Medium": "خفيف-متوسط", Medium: "متوسط", "Medium-Heavy": "متوسط-ثقيل", Heavy: "ثقيل" };
 function wLabel(w) { return WEIGHT_LABEL_AR[w] || w; }
+
+const EXNAME_AR = {"Weighted pull-up": "سحب عقلة بوزن إضافي", "Chest-supported row": "تجديف بإسناد الصدر", "Incline dumbbell press": "ضغط دمبل مائل", "Face pull": "سحب للوجه", "Barbell shrug": "هز أكتاف بالبار", "Cable curl — short head (elbows forward)": "بايسبس كيبل — الرأس القصير", "Cable curl — long head (elbows back)": "بايسبس كيبل — الرأس الطويل", "Back squat": "قرفصاء خلفية", "Romanian deadlift": "رفعة رومانية ميتة", "Hip thrust": "دفع الحوض", "Leg extension": "فرد الساق", "Standing calf raise": "رفع سمانة واقفاً", "Hanging leg raise": "رفع الأرجل معلقاً", "Flat barbell bench press": "بنش بار مستوٍ", "Weighted dips": "متوازي بوزن إضافي", "Lat pulldown, underhand grip": "سحب علوي بقبضة معكوسة", "Cable lateral raise (leaning away)": "رفع جانبي كيبل (مائل بعيداً)", "Rear-delt cable fly (45°)": "فراشة كيبل للكتف الخلفي", "Overhead one-arm cable extension": "فرد ترايسبس كيبل فوق الرأس", "One-arm cable pushdown": "دفع كيبل للأسفل بيد واحدة", "Deadlift (conventional or RDL)": "رفعة ميتة (تقليدية أو رومانية)", "Bulgarian split squat": "قرفصاء بلغارية", "Lying leg curl": "ثني الساق مستلقياً", "Hip abduction machine": "جهاز إبعاد الورك", "Seated calf raise": "رفع سمانة جالساً", "Weighted plank / Pallof press": "بلانك بوزن / دفع بالوف", "Flat bench press": "بنش مستوٍ", "Seated cable row": "تجديف كيبل جالساً", "Plank": "بلانك", "Overhead press": "ضغط كتف فوق الرأس", "Lat pulldown": "سحب علوي", "Hanging knee raise": "رفع الركبتين معلقاً", "Dumbbell shrug": "هز أكتاف بالدمبل", "Leg press": "مكبس الأرجل", "Seated cable row (wide grip)": "تجديف كيبل جالساً (قبضة عريضة)", "Bicep curl": "بايسبس كيرل", "Triceps pushdown": "دفع ترايسبس للأسفل", "Leg curl": "ثني الساق", "Cable crunch": "كرانش كيبل", "EZ bar curl": "بايسبس بار EZ", "Deadlift": "رفعة ميتة", "Walking lunge": "لنج متحرك", "Pull-up (assisted if needed)": "عقلة (بمساعدة إن لزم)", "Lateral raise": "رفع جانبي", "Weighted step-up": "صعود درجة بوزن إضافي", "Calf raise on leg press": "رفع سمانة على مكبس الأرجل", "Reverse crunch": "كرانش عكسي", "Suitcase carry": "حمل الحقيبة", "Cable lateral raise": "رفع جانبي كيبل", "Prone Y-raise": "رفع Y مستلقياً", "Cable external rotation": "دوران خارجي كيبل", "Reverse curl": "كيرل معكوس", "Farmer's hold": "حمل المزارع", "Dips": "متوازي", "Pull-up": "عقلة", "Lat pulldown, wide grip": "سحب علوي بقبضة عريضة", "Incline barbell press": "بنش بار مائل", "Reverse pec-deck fly": "فراشة عكسية", "Cable shrug": "هز أكتاف كيبل", "Hack squat": "هاك سكوات", "Cable pull-through": "سحب كيبل من بين الأرجل", "Flat dumbbell press": "بنش دمبل مستوٍ", "Close-grip bench press": "بنش بقبضة ضيقة", "Chin-ups": "عقلة بقبضة معكوسة", "Dumbbell lateral raise": "رفع جانبي بالدمبل", "Machine reverse fly": "فراشة عكسية بالجهاز", "Trap bar deadlift": "رفعة ميتة بار مثلث", "Banded lateral walk": "مشي جانبي بشريط مقاومة", "Side plank": "بلانك جانبي"};
+const MUSCLE_AR = {"Back": "الظهر", "Chest": "الصدر", "Rear delt / traps": "الكتف الخلفي / الترابيس", "Traps": "الترابيس", "Biceps": "البايسبس", "Quads": "الفخذ الأمامي", "Hamstrings": "الهامسترينغ", "Glutes": "المؤخرة", "Calves": "السمانة", "Core": "الجذع", "Chest / triceps": "الصدر / الترايسبس", "Delts": "الكتفين", "Rear delt": "الكتف الخلفي", "Triceps": "الترايسبس", "Hamstrings / glutes": "الهامسترينغ / المؤخرة", "Glute medius": "المؤخرة الوسطى", "Core (anti-rotation)": "الجذع (مضاد للدوران)", "Quads / glutes": "الفخذ الأمامي / المؤخرة", "Posterior chain": "السلسلة الخلفية", "Quads / glute max": "الفخذ الأمامي / المؤخرة الكبرى", "Glute max": "المؤخرة الكبرى", "Core (anti-lateral-flexion)": "الجذع (مضاد للانحناء الجانبي)", "Delts (front)": "الكتف الأمامي", "Delts (side)": "الكتف الجانبي", "Lower traps / posture": "الترابيس السفلية / القوام", "Rotator cuff / shoulder posture": "الكفة المدورة / قوام الكتف", "Forearms": "الساعدين", "Forearms / grip": "الساعدين / القبضة", "Hamstrings / glute max": "الهامسترينغ / المؤخرة الكبرى", "Chest (upper)": "الصدر (العلوي)", "Chest (lower) / triceps": "الصدر (السفلي) / الترايسبس"};
+// Shows "Arabic (English original)" so exercises stay searchable on
+// YouTube/Google in the term most fitness content actually uses, per
+// Spirito's choice to keep both rather than Arabic-only.
+function exLabel(name) { const ar = EXNAME_AR[name]; return ar ? `${ar} (${name})` : name; }
+function muscleLabel(m) { const ar = MUSCLE_AR[m]; return ar ? `${ar} (${m})` : m; }
 
 function PlateIcon({ weight, size = 16, shape = "round" }) {
   const s = WEIGHT_INFO[weight] || WEIGHT_INFO.Medium;
@@ -396,10 +450,10 @@ function PlateLegend() {
       </div>
       <div className="space-y-1.5">
         {WEIGHT_OPTIONS.map((w) => (
-          <div key={w} className="flex items-center gap-3 rounded-xl bg-mist px-3 py-2">
+          <div key={w} className="flex flex-row-reverse items-center gap-3 rounded-xl bg-mist px-3 py-2">
             <PlateIcon weight={w} size={26} shape="square" />
-            <span className="font-bold text-ink text-sm flex-1">{wLabel(w)}</span>
-            <span className="text-xs text-ink-faint font-mono text-right">{WEIGHT_INFO[w].desc}</span>
+            <span className="font-bold text-ink text-sm flex-1 text-right">{wLabel(w)}</span>
+            <span className="text-xs text-ink-faint font-mono text-left">{WEIGHT_INFO[w].desc}</span>
           </div>
         ))}
       </div>
@@ -559,7 +613,7 @@ function DetailModal({ ex: item, onCancel }) {
     <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/60 backdrop-blur-[2px]" onClick={onCancel}>
       <div className={sheetClass} onClick={(e) => e.stopPropagation()}>
         <div className="sticky top-0 bg-card flex items-center justify-between px-5 py-4 border-b border-line z-10">
-          <h2 className="text-xl font-black text-ink font-display">{item.name}</h2>
+          <h2 className="text-xl font-black text-ink font-display">{exLabel(item.name)}</h2>
           <button onClick={onCancel} className="p-2 -mr-2 rounded-full text-ink-faint hover:bg-mist"><X className="w-5 h-5" /></button>
         </div>
         {item.image ? <img src={item.image} alt="" className="w-full aspect-square object-cover" /> : (
@@ -575,12 +629,18 @@ function DetailModal({ ex: item, onCancel }) {
           <p className="px-5 pt-4 text-sm text-ink-faint">لا يوجد فيديو مضاف لهذا التمرين بعد.</p>
         )}
         <div className="p-5 space-y-3">
-          <p className="text-ink-soft">{item.muscle}</p>
+          <p className="text-ink-soft">{muscleLabel(item.muscle)}</p>
           <div className="flex flex-wrap items-center gap-2">
             <span className="inline-flex items-center gap-1.5 text-sm font-mono font-bold text-ink bg-mist rounded-full px-3 py-1.5"><Dumbbell className="w-3.5 h-3.5" /> {item.sets} مجموعات · {item.reps}</span>
             <PlateBadge weight={item.weight} size="lg" />
             <span className="inline-flex items-center gap-1 text-sm font-mono text-ink-faint"><Clock className="w-3.5 h-3.5" /> {item.rest}</span>
           </div>
+          {item.alt?.length > 0 && (
+            <div className="rounded-2xl bg-mist p-3.5">
+              <p className="text-xs font-bold text-ink-faint uppercase tracking-wide mb-1.5">أو بدلاً منه</p>
+              <p className="text-sm text-ink-soft">{item.alt.map((a) => exLabel(a)).join(" · ")}</p>
+            </div>
+          )}
         </div>
       </div>
     </div>
@@ -607,8 +667,8 @@ function ExerciseCard({ ex: item, onOpenEdit, onDelete, onQuickPhoto, readOnly }
         <div className="flex-1 min-w-0 flex flex-col">
           <div className="flex items-start justify-between gap-1.5">
             <button type="button" onClick={() => setDetailOpen(true)} className="text-left min-w-0 flex-1">
-              <h3 className="font-black text-ink text-[15px] leading-snug line-clamp-2">{item.name}</h3>
-              <p className="text-xs text-ink-faint truncate mt-0.5">{item.muscle}</p>
+              <h3 className="font-black text-ink text-[15px] leading-snug line-clamp-2">{exLabel(item.name)}</h3>
+              <p className="text-xs text-ink-faint truncate mt-0.5">{muscleLabel(item.muscle)}</p>
             </button>
             {!readOnly && (
               <div className="flex gap-0.5 shrink-0 -mr-1.5 -mt-1">
@@ -760,19 +820,28 @@ function ProfileModal({ user, onCancel, onSignIn, onUpgrade, onSignOut, status, 
 }
 
 function ShareModal({ plan, user, onCancel, onPatchPlan }) {
-  const [pubState, setPubState] = useState(plan.publicSubmitted ? "sent" : "idle");
+  const [description, setDescription] = useState(plan.description || "");
+  const [pubState, setPubState] = useState("idle");
   const [codeState, setCodeState] = useState("idle");
   const [copied, setCopied] = useState(false);
+  const [announce, setAnnounce] = useState(false);
+
+  const isLive = !!plan.publicShareId;
 
   const submitPublic = async () => {
     setPubState("sending");
-    try { await submitPlanForReview(plan, user.uid, user.displayName); onPatchPlan({ publicSubmitted: true }); setPubState("sent"); }
+    try { const id = await submitPlanForReview(plan, user.uid, user.displayName, description); onPatchPlan({ publicShareId: id, publicApproved: false }); setPubState("sent"); }
+    catch (err) { setPubState("error"); }
+  };
+  const pushUpdate = async () => {
+    setPubState("sending");
+    try { await updateSharedPlanContent(plan.publicShareId, plan, description, announce); setPubState("sent"); }
     catch (err) { setPubState("error"); }
   };
 
   const generateCode = async () => {
     setCodeState("sending");
-    try { const code = await shareplanByCode(plan, user.uid, user.displayName); onPatchPlan({ shareCode: code }); setCodeState("idle"); }
+    try { const code = await shareplanByCode(plan, user.uid, user.displayName, description); onPatchPlan({ shareCode: code }); setCodeState("idle"); }
     catch (err) { setCodeState("error"); }
   };
   const revokeCode = async () => {
@@ -782,6 +851,7 @@ function ShareModal({ plan, user, onCancel, onPatchPlan }) {
     catch (err) { setCodeState("error"); }
   };
   const copyCode = () => { navigator.clipboard?.writeText(plan.shareCode).then(() => { setCopied(true); setTimeout(() => setCopied(false), 1500); }); };
+  const saveDescription = () => onPatchPlan({ description });
 
   return (
     <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/60 backdrop-blur-[2px]" onClick={onCancel}>
@@ -792,13 +862,19 @@ function ShareModal({ plan, user, onCancel, onPatchPlan }) {
         </div>
         <div className="p-5 space-y-5">
 
+          <div>
+            <p className="font-bold text-ink text-sm mb-1">وصف الخطة (اختياري)</p>
+            <p className="text-xs text-ink-faint mb-2">هدف الخطة، لمن تناسب، أي شيء يساعد الناس على الفهم دون تصفح كل تمرين.</p>
+            <textarea value={description} onChange={(e) => setDescription(e.target.value)} onBlur={saveDescription} rows={3} placeholder="مثال: تركيز على المؤخرة والهامسترينغ، 4 أيام أسبوعياً، مناسبة لمن لديه خبرة سابقة." className={inputClass + " resize-none"} />
+          </div>
+
           <div className="rounded-2xl border border-line p-4">
             <p className="font-bold text-ink text-sm mb-1">المشاركة مع أشخاص محددين</p>
             <p className="text-xs text-ink-faint mb-3">يولّد رمزاً. فقط من تعطيه الرمز يمكنه إضافة هذه الخطة — غير مُدرجة في أي مكان.</p>
             {plan.shareCode ? (
               <>
                 <div className="flex items-center gap-2 mb-2">
-                  <span className="flex-1 font-mono font-black text-2xl tracking-[0.2em] text-charge bg-charge-soft rounded-xl px-4 py-2.5 text-center">{plan.shareCode}</span>
+                  <span dir="ltr" className="flex-1 font-mono font-black text-2xl tracking-[0.2em] text-charge bg-charge-soft rounded-xl px-4 py-2.5 text-center">{plan.shareCode}</span>
                   <button onClick={copyCode} className="p-3 rounded-xl bg-mist text-ink-soft hover:text-ink shrink-0"><Copy className="w-4 h-4" /></button>
                 </div>
                 {copied && <p className="text-xs text-charge mb-2">تم النسخ.</p>}
@@ -814,15 +890,32 @@ function ShareModal({ plan, user, onCancel, onPatchPlan }) {
 
           <div className="rounded-2xl border border-line p-4">
             <p className="font-bold text-ink text-sm mb-1">الإرسال إلى المجتمع</p>
-            <p className="text-xs text-ink-faint mb-3">يرسل "{plan.name}" للمراجعة. تظهر للجميع بعد الموافقة. الصور غير مضمّنة، فقط قائمة التمارين.</p>
-            {pubState === "sent" ? (
-              <div className="rounded-xl bg-charge-soft border border-charge/20 p-3 text-sm text-charge flex items-center gap-2"><Check className="w-4 h-4 shrink-0" /> تم الإرسال — ستظهر في المجتمع بعد الموافقة.</div>
+            {!isLive && <p className="text-xs text-ink-faint mb-3">يرسل "{plan.name}" للمراجعة. تظهر للجميع بعد الموافقة. الصور غير مضمّنة، فقط قائمة التمارين.</p>}
+            {isLive ? (
+              <>
+                <div className="rounded-xl bg-charge-soft border border-charge/20 p-3 text-sm text-charge flex items-center gap-2 mb-3"><Check className="w-4 h-4 shrink-0" /> منشورة بالفعل — أي تعديل الآن يُحدّث نفس النسخة.</div>
+                <label className="flex items-center gap-2.5 text-sm text-ink-soft cursor-pointer w-fit py-1 mb-2">
+                  <input type="checkbox" checked={announce} onChange={(e) => setAnnounce(e.target.checked)} className="w-4 h-4 rounded border-line accent-charge" />
+                  إظهار شارة "تم التحديث" للمستخدمين
+                </label>
+                {pubState === "error" && <p className="text-xs text-danger mb-2">حدث خطأ ما — حاول مرة أخرى.</p>}
+                {pubState === "sent" && <p className="text-xs text-charge mb-2">تم التحديث.</p>}
+                <button disabled={pubState === "sending"} onClick={pushUpdate} className="w-full py-3 rounded-xl text-sm font-bold bg-mist text-ink hover:bg-line/60 disabled:opacity-40 transition-colors">
+                  {pubState === "sending" ? "جارٍ التحديث…" : "دفع التعديلات"}
+                </button>
+              </>
             ) : (
               <>
-                {pubState === "error" && <p className="text-xs text-danger mb-2">حدث خطأ ما — حاول مرة أخرى.</p>}
-                <button disabled={pubState === "sending"} onClick={submitPublic} className="w-full py-3 rounded-xl text-sm font-bold bg-mist text-ink hover:bg-line/60 disabled:opacity-40 transition-colors">
-                  {pubState === "sending" ? "Sending…" : "Submit for review"}
-                </button>
+                {pubState === "sent" ? (
+                  <div className="rounded-xl bg-charge-soft border border-charge/20 p-3 text-sm text-charge flex items-center gap-2"><Check className="w-4 h-4 shrink-0" /> تم الإرسال — ستظهر في المجتمع بعد الموافقة.</div>
+                ) : (
+                  <>
+                    {pubState === "error" && <p className="text-xs text-danger mb-2">حدث خطأ ما — حاول مرة أخرى.</p>}
+                    <button disabled={pubState === "sending"} onClick={submitPublic} className="w-full py-3 rounded-xl text-sm font-bold bg-mist text-ink hover:bg-line/60 disabled:opacity-40 transition-colors">
+                      {pubState === "sending" ? "جارٍ الإرسال…" : "إرسال للمراجعة"}
+                    </button>
+                  </>
+                )}
               </>
             )}
           </div>
@@ -894,34 +987,102 @@ function JoinSharedPlanCard({ onJoin }) {
 // doesn't render for anyone not in ADMIN_UIDS, and every action it takes
 // still goes through rules on the way to the server.
 function AdminPanel({ user }) {
-  const [items, setItems] = useState(null);
+  const [pending, setPending] = useState(null);
+  const [live, setLive] = useState(null);
+  const [messages, setMessages] = useState(null);
+  const [replyDrafts, setReplyDrafts] = useState({});
   const [busyId, setBusyId] = useState(null);
   const [copied, setCopied] = useState(false);
-  const load = async () => { setItems(null); try { setItems(await fetchPendingSubmissions()); } catch (err) { setItems([]); } };
-  useEffect(() => { load(); }, []);
-  const approve = async (id) => { setBusyId(id); try { await adminSetApproved(id, true); } catch (err) { /* ignore */ } await load(); setBusyId(null); };
-  const reject = async (id) => { setBusyId(id); try { await adminDeleteSharedPlan(id); } catch (err) { /* ignore */ } await load(); setBusyId(null); };
+
+  const loadPending = async () => { setPending(null); try { setPending(await fetchPendingSubmissions()); } catch (err) { setPending([]); } };
+  const loadLive = async () => { setLive(null); try { setLive(await fetchLiveCommunityPlansForAdmin()); } catch (err) { setLive([]); } };
+  const loadMessages = async () => { setMessages(null); try { setMessages(await fetchAllMessages()); } catch (err) { setMessages([]); } };
+  useEffect(() => { loadPending(); loadLive(); loadMessages(); }, []);
+
+  const approve = async (id) => { setBusyId(id); try { await adminSetApproved(id, true); } catch (err) { /* ignore */ } await Promise.all([loadPending(), loadLive()]); setBusyId(null); };
+  const reject = async (id) => { setBusyId(id); try { await adminDeleteSharedPlan(id); } catch (err) { /* ignore */ } await loadPending(); setBusyId(null); };
+  const unpin = async (id) => { setBusyId(id); try { await adminSetApproved(id, false); } catch (err) { /* ignore */ } await Promise.all([loadPending(), loadLive()]); setBusyId(null); };
+  const remove = async (id) => { setBusyId(id); try { await adminDeleteSharedPlan(id); } catch (err) { /* ignore */ } await loadLive(); setBusyId(null); };
+  const toggleRecommend = async (p) => { setBusyId(p.id); try { await adminSetRecommended(p.id, !p.recommended); } catch (err) { /* ignore */ } await loadLive(); setBusyId(null); };
+  const clearAnnounced = async (id) => { setBusyId(id); try { await adminClearAnnounced(id); } catch (err) { /* ignore */ } await loadLive(); setBusyId(null); };
+  const sendReply = async (id) => {
+    const text = (replyDrafts[id] || "").trim();
+    if (!text) return;
+    setBusyId(id);
+    try { await replyToMessage(id, text); } catch (err) { /* ignore */ }
+    await loadMessages(); setBusyId(null);
+  };
   const copyUid = () => { navigator.clipboard?.writeText(user.uid).then(() => { setCopied(true); setTimeout(() => setCopied(false), 1500); }); };
 
   return (
-    <section>
-      <h2 className="text-[11px] font-bold uppercase tracking-[0.14em] text-ink-faint mb-2.5">أدوات المسؤول</h2>
-      <button onClick={copyUid} className="w-full flex items-center justify-between gap-2 bg-card border border-line rounded-2xl px-4 py-3.5 mb-2 hover:border-ink-faint transition-colors">
-        <span className="text-left"><span className="font-bold text-ink text-sm block">معرّف المستخدم الخاص بك</span><span className="text-xs text-ink-faint font-mono">{user.uid}</span></span>
+    <section className="space-y-3">
+      <h2 className="text-[11px] font-bold uppercase tracking-[0.14em] text-ink-faint">أدوات المسؤول</h2>
+      <button onClick={copyUid} className="w-full flex items-center justify-between gap-2 bg-card border border-line rounded-2xl px-4 py-3.5 hover:border-ink-faint transition-colors">
+        <span className="text-left"><span className="font-bold text-ink text-sm block">معرّف المستخدم الخاص بك</span><span className="text-xs text-ink-faint font-mono" dir="ltr">{user.uid}</span></span>
         <span className="shrink-0 text-xs font-bold text-charge">{copied ? "تم النسخ" : "نسخ"}</span>
       </button>
+
       <div className="rounded-2xl border border-line bg-card p-4">
-        <p className="text-xs font-bold text-ink-faint uppercase tracking-wide mb-3">إرسالات المجتمع قيد المراجعة</p>
-        {items === null && <p className="text-sm text-ink-faint flex items-center gap-2"><Loader2 className="w-4 h-4 animate-spin" /> جارٍ التحميل…</p>}
-        {items?.length === 0 && <p className="text-sm text-ink-faint">لا شيء بانتظار المراجعة.</p>}
+        <p className="text-xs font-bold text-ink-faint uppercase tracking-wide mb-3">إرسالات قيد المراجعة</p>
+        {pending === null && <p className="text-sm text-ink-faint flex items-center gap-2"><Loader2 className="w-4 h-4 animate-spin" /> جارٍ التحميل…</p>}
+        {pending?.length === 0 && <p className="text-sm text-ink-faint">لا شيء بانتظار المراجعة.</p>}
         <div className="space-y-2">
-          {items?.map((p) => (
-            <div key={p.id} className="rounded-xl bg-mist p-3 flex items-center justify-between gap-2">
-              <div className="min-w-0"><p className="font-bold text-sm text-ink truncate">{p.name}</p><p className="text-xs text-ink-faint">بواسطة {p.author || "مجهول"} · {p.days?.length || 0} أيام/أسبوع</p></div>
-              <div className="flex gap-1.5 shrink-0">
-                <button disabled={busyId === p.id} onClick={() => approve(p.id)} className="p-2 rounded-lg bg-charge-soft text-charge disabled:opacity-40" aria-label="موافقة"><Check className="w-4 h-4" /></button>
-                <button disabled={busyId === p.id} onClick={() => reject(p.id)} className="p-2 rounded-lg bg-danger-soft text-danger disabled:opacity-40" aria-label="رفض"><X className="w-4 h-4" /></button>
+          {pending?.map((p) => (
+            <div key={p.id} className="rounded-xl bg-mist p-3">
+              <div className="flex items-center justify-between gap-2">
+                <div className="min-w-0"><p className="font-bold text-sm text-ink truncate">{p.name}</p><p className="text-xs text-ink-faint">بواسطة {p.author || "مجهول"} · {p.days?.length || 0} أيام/أسبوع</p></div>
+                <div className="flex gap-1.5 shrink-0">
+                  <button disabled={busyId === p.id} onClick={() => approve(p.id)} className="p-2 rounded-lg bg-charge-soft text-charge disabled:opacity-40" aria-label="موافقة"><Check className="w-4 h-4" /></button>
+                  <button disabled={busyId === p.id} onClick={() => reject(p.id)} className="p-2 rounded-lg bg-danger-soft text-danger disabled:opacity-40" aria-label="رفض"><X className="w-4 h-4" /></button>
+                </div>
               </div>
+              {p.description && <p className="text-xs text-ink-faint mt-2 pt-2 border-t border-line">{p.description}</p>}
+            </div>
+          ))}
+        </div>
+      </div>
+
+      <div className="rounded-2xl border border-line bg-card p-4">
+        <p className="text-xs font-bold text-ink-faint uppercase tracking-wide mb-3">منشورة في المجتمع الآن</p>
+        {live === null && <p className="text-sm text-ink-faint flex items-center gap-2"><Loader2 className="w-4 h-4 animate-spin" /> جارٍ التحميل…</p>}
+        {live?.length === 0 && <p className="text-sm text-ink-faint">لا توجد خطط منشورة حالياً.</p>}
+        <div className="space-y-2">
+          {live?.map((p) => (
+            <div key={p.id} className="rounded-xl bg-mist p-3">
+              <div className="flex items-center justify-between gap-2">
+                <div className="min-w-0 flex items-center gap-1.5">
+                  {p.recommended && <Star className="w-3.5 h-3.5 text-charge fill-charge shrink-0" />}
+                  <div className="min-w-0"><p className="font-bold text-sm text-ink truncate">{p.name}</p><p className="text-xs text-ink-faint">بواسطة {p.author || "مجهول"}{p.announced ? " · مُحدّثة" : ""}</p></div>
+                </div>
+                <div className="flex gap-1.5 shrink-0">
+                  <button disabled={busyId === p.id} onClick={() => toggleRecommend(p)} className={`p-2 rounded-lg disabled:opacity-40 ${p.recommended ? "bg-charge text-paper" : "bg-mist text-ink-faint border border-line"}`} aria-label="التوصية"><Star className="w-4 h-4" /></button>
+                  <button disabled={busyId === p.id} onClick={() => unpin(p.id)} className="p-2 rounded-lg bg-danger-soft text-danger disabled:opacity-40" aria-label="إلغاء التثبيت">إلغاء</button>
+                  <button disabled={busyId === p.id} onClick={() => remove(p.id)} className="p-2 rounded-lg bg-danger-soft text-danger disabled:opacity-40" aria-label="حذف"><Trash2 className="w-4 h-4" /></button>
+                </div>
+              </div>
+              {p.announced && <button disabled={busyId === p.id} onClick={() => clearAnnounced(p.id)} className="text-xs font-bold text-ink-faint mt-2">إخفاء شارة "مُحدّثة"</button>}
+            </div>
+          ))}
+        </div>
+      </div>
+
+      <div className="rounded-2xl border border-line bg-card p-4">
+        <p className="text-xs font-bold text-ink-faint uppercase tracking-wide mb-3">الرسائل</p>
+        {messages === null && <p className="text-sm text-ink-faint flex items-center gap-2"><Loader2 className="w-4 h-4 animate-spin" /> جارٍ التحميل…</p>}
+        {messages?.length === 0 && <p className="text-sm text-ink-faint">لا توجد رسائل.</p>}
+        <div className="space-y-3">
+          {messages?.map((m) => (
+            <div key={m.id} className="rounded-xl bg-mist p-3">
+              <p className="text-xs text-ink-faint mb-1">{m.fromName || "مجهول"}{m.planName ? ` · بخصوص "${m.planName}"` : ""}{m.status === "open" ? " · بانتظار الرد" : ""}</p>
+              <p className="text-sm text-ink mb-2">{m.body}</p>
+              {m.reply ? (
+                <div className="rounded-lg bg-card border border-line p-2.5 text-sm text-ink-soft">ردّك: {m.reply}</div>
+              ) : (
+                <div className="flex gap-2">
+                  <input value={replyDrafts[m.id] || ""} onChange={(e) => setReplyDrafts((d) => ({ ...d, [m.id]: e.target.value }))} placeholder="اكتب رداً…" className="flex-1 rounded-lg border border-line bg-card px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-charge" />
+                  <button disabled={busyId === m.id} onClick={() => sendReply(m.id)} className="px-3 py-2 rounded-lg text-sm font-bold bg-charge text-paper disabled:opacity-40">إرسال</button>
+                </div>
+              )}
             </div>
           ))}
         </div>
@@ -938,6 +1099,7 @@ function CommunityPage({ onFork, isOnline }) {
     (async () => {
       try {
         const data = await fetchCommunityPlans();
+        data.sort((a, b) => (b.recommended ? 1 : 0) - (a.recommended ? 1 : 0));
         if (data.length) { setItems(data); setState("ok"); } else setState("empty");
       } catch (err) { setState("empty"); }
     })();
@@ -950,15 +1112,61 @@ function CommunityPage({ onFork, isOnline }) {
       {state === "loading" && <div className="flex items-center gap-2 text-ink-faint text-sm py-10 justify-center"><Loader2 className="w-4 h-4 animate-spin" /> جارٍ التحميل…</div>}
       {state === "empty" && <p className="text-sm text-ink-faint text-center py-10">لا توجد خطط موافق عليها بعد — تحقق لاحقاً.</p>}
       {items.map((p) => (
-        <div key={p.id} className="rounded-2xl border border-line bg-card p-4 flex items-center justify-between gap-3">
-          <div className="min-w-0">
-            <p className="font-black text-ink truncate">{p.name}</p>
-            <p className="text-sm text-ink-faint">بواسطة {p.author || "مجهول"} · {p.days?.length || 0} أيام/أسبوع</p>
+        <div key={p.id} className={`rounded-2xl border bg-card p-4 ${p.recommended ? "border-charge/50" : "border-line"}`}>
+          <div className="flex items-center justify-between gap-3">
+            <div className="min-w-0">
+              <div className="flex items-center gap-1.5">
+                {p.recommended && <Star className="w-3.5 h-3.5 text-charge fill-charge shrink-0" />}
+                <p className="font-black text-ink truncate">{p.name}</p>
+                {p.announced && <span className="shrink-0 text-[10px] font-bold text-w4-strong bg-w4-soft rounded-full px-2 py-0.5">مُحدّثة</span>}
+              </div>
+              <p className="text-sm text-ink-faint">بواسطة {p.author || "مجهول"} · {p.days?.length || 0} أيام/أسبوع</p>
+            </div>
+            <button onClick={() => onFork(p)} className="shrink-0 px-3.5 py-2.5 rounded-xl text-sm font-bold bg-charge text-paper hover:bg-charge-strong transition-colors flex items-center gap-1.5"><Copy className="w-4 h-4" /> نسخ</button>
           </div>
-          <button onClick={() => onFork(p)} className="shrink-0 px-3.5 py-2.5 rounded-xl text-sm font-bold bg-charge text-paper hover:bg-charge-strong transition-colors flex items-center gap-1.5"><Copy className="w-4 h-4" /> نسخ</button>
+          {p.description && <p className="text-sm text-ink-soft mt-2.5 pt-2.5 border-t border-line">{p.description}</p>}
         </div>
       ))}
     </div>
+  );
+}
+
+function ContactPanel({ user }) {
+  const [body, setBody] = useState("");
+  const [state, setState] = useState("idle");
+  const [mine, setMine] = useState(null);
+  const load = async () => { try { setMine(await fetchMyMessages(user.uid)); } catch (err) { setMine([]); } };
+  useEffect(() => { load(); }, []);
+  const send = async () => {
+    if (!body.trim()) return;
+    setState("sending");
+    try { await sendMessage(user.uid, user.displayName, body.trim(), null); setBody(""); setState("idle"); await load(); }
+    catch (err) { setState("error"); }
+  };
+  return (
+    <section>
+      <h2 className="text-[11px] font-bold uppercase tracking-[0.14em] text-ink-faint mb-2.5">تواصل معي</h2>
+      <div className="rounded-2xl border border-line bg-card p-4">
+        <p className="text-xs text-ink-faint mb-2">مشكلة في خطة، اقتراح، أي شيء — أرسل رسالة وسأرد عليك هنا.</p>
+        <textarea value={body} onChange={(e) => setBody(e.target.value)} rows={3} placeholder="اكتب رسالتك…" className={inputClass + " resize-none mb-2"} />
+        {state === "error" && <p className="text-xs text-danger mb-2">حدث خطأ ما — حاول مرة أخرى.</p>}
+        <button disabled={state === "sending" || !body.trim()} onClick={send} className="w-full py-2.5 rounded-xl text-sm font-bold bg-charge text-paper disabled:opacity-30 hover:bg-charge-strong transition-colors">
+          {state === "sending" ? "جارٍ الإرسال…" : "إرسال"}
+        </button>
+      </div>
+      {mine && mine.length > 0 && (
+        <div className="space-y-2 mt-2">
+          {mine.map((m) => (
+            <div key={m.id} className="rounded-xl bg-mist p-3">
+              <p className="text-sm text-ink mb-1.5">{m.body}</p>
+              {m.reply
+                ? <div className="rounded-lg bg-card border border-charge/20 p-2.5 text-sm text-ink-soft"><span className="font-bold text-charge">الرد: </span>{m.reply}</div>
+                : <p className="text-xs text-ink-faint">بانتظار الرد…</p>}
+            </div>
+          ))}
+        </div>
+      )}
+    </section>
   );
 }
 
@@ -1284,7 +1492,7 @@ function WorkoutSession({ day, onExit }) {
         <div className="fixed top-4 inset-x-0 flex justify-center z-20 px-4 pointer-events-none">
           <div className="tl-toast bg-charge text-paper rounded-full pl-3 pr-4 py-2.5 text-sm font-bold shadow-lg flex items-center gap-2">
             <span className="w-5 h-5 rounded-full bg-ink/20 flex items-center justify-center shrink-0"><Check className="w-3 h-3" /></span>
-            <span className="truncate max-w-[70vw]">{toast.done} done{toast.next ? ` — next: ${toast.next}` : ""}</span>
+            <span className="truncate max-w-[70vw]">اكتمل {exLabel(toast.done)}{toast.next ? ` — التالي: ${exLabel(toast.next)}` : ""}</span>
           </div>
         </div>
       )}
@@ -1339,8 +1547,8 @@ function WorkoutSession({ day, onExit }) {
               {currentEx.image
                 ? <img src={currentEx.image} alt="" className="w-[clamp(72px,14vw,104px)] h-[clamp(72px,14vw,104px)] rounded-2xl object-cover mb-3" />
                 : <div className="w-[clamp(72px,14vw,104px)] h-[clamp(72px,14vw,104px)] rounded-2xl bg-ink/10 mb-3 flex items-center justify-center"><Dumbbell className="w-8 h-8 text-ink/30" /></div>}
-              <h2 className="text-[clamp(1.25rem,4vw,1.75rem)] font-black font-display leading-tight mb-0.5">{currentEx.name}</h2>
-              <p className="text-ink/50 text-sm mb-1">{currentEx.muscle}</p>
+              <h2 className="text-[clamp(1.25rem,4vw,1.75rem)] font-black font-display leading-tight mb-0.5">{exLabel(currentEx.name)}</h2>
+              <p className="text-ink/50 text-sm mb-1">{muscleLabel(currentEx.muscle)}</p>
               <p className="text-ink/70 text-sm font-mono mb-5 flex items-center gap-2">{currentEx.reps} reps · <PlateBadge weight={currentEx.weight} /></p>
 
               <div className="flex gap-2 mb-6 flex-wrap justify-center max-w-xs">
@@ -1368,7 +1576,7 @@ function WorkoutSession({ day, onExit }) {
             <>
               <p className="text-ink/50 text-sm mb-2">راحة قبل المجموعة {setsDone + 1}</p>
               <div className={`text-[clamp(3rem,11vw,5rem)] font-black font-mono mb-4 tabular-nums ${accent.text}`}>{fmtClock(restLeft)}</div>
-              <p className="text-ink/40 text-sm mb-6">{currentEx.name}</p>
+              <p className="text-ink/40 text-sm mb-6">{exLabel(currentEx.name)}</p>
               <button onClick={skipRest} className="px-6 py-2.5 rounded-xl text-sm font-bold text-ink/60 border border-ink/20 hover:bg-ink/10 transition-colors">تخطي الراحة</button>
             </>
           )}
@@ -1698,11 +1906,6 @@ export default function TrainingLog() {
             <span className="font-display font-black text-ink text-sm truncate">{PAGE_TITLE[page]}</span>
           </div>
           <div className="flex items-center gap-2 shrink-0">
-            {pwa.canInstall && (
-              <button onClick={pwa.promptInstall} className="inline-flex items-center gap-1.5 text-xs font-bold text-paper bg-charge rounded-full pl-2.5 pr-3 py-1.5 hover:bg-charge-strong transition-colors">
-                <PlusSquare className="w-3.5 h-3.5" /> تثبيت التطبيق
-              </button>
-            )}
             {!isOnline && (
               <span className="inline-flex items-center gap-1.5 text-xs font-bold text-ink-faint bg-mist rounded-full pl-2 pr-2.5 py-1">
                 <WifiOff className="w-3.5 h-3.5" /> غير متصل
@@ -1740,9 +1943,9 @@ export default function TrainingLog() {
               </div>
             )}
 
-            <button onClick={() => !isReadOnly && guard(() => setManageDaysOpen(true))()} disabled={isReadOnly} className="w-full flex items-center justify-between mb-3 px-1 py-1 disabled:cursor-default">
-              <span className="inline-flex items-center gap-1.5 text-sm font-bold text-ink-soft"><Calendar className="w-4 h-4" /> {plan.days.length} أيام / أسبوع</span>
-              {!isReadOnly && <span className="text-sm font-bold text-ink-faint flex items-center gap-1">تعديل <Pencil className="w-3.5 h-3.5" /></span>}
+            <button onClick={() => !isReadOnly && guard(() => setManageDaysOpen(true))()} disabled={isReadOnly} className="w-full flex flex-row-reverse items-center justify-between mb-3 px-1 py-1 disabled:cursor-default">
+              <span className="inline-flex items-center gap-1.5 text-sm font-bold text-ink-soft">{plan.days.length} أيام / أسبوع <Calendar className="w-4 h-4" /></span>
+              {!isReadOnly && <span className="text-sm font-bold text-ink-faint flex items-center gap-1"><Pencil className="w-3.5 h-3.5" /> تعديل</span>}
             </button>
 
             <nav className="grid gap-2 mb-4" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(6.5rem, 1fr))" }}>
@@ -1788,10 +1991,17 @@ export default function TrainingLog() {
 
         {page === "profile" && (
           <div className="space-y-6">
-            <h1 className="text-3xl font-black tracking-tight text-ink font-display">أنت</h1>
+            <h1 className="text-3xl font-black tracking-tight text-ink font-display text-right">أنت</h1>
 
             <section>
-              <div className="flex items-center justify-between mb-2.5">
+              <button onClick={() => isOnline && setSyncOpen(true)} disabled={!isOnline} className="w-full flex items-center justify-between gap-2 bg-card border border-line rounded-2xl px-4 py-3.5 disabled:opacity-40 hover:border-ink-faint transition-colors">
+                <span className="flex items-center gap-2.5"><Cloud className={`w-5 h-5 ${canEdit ? "text-charge" : "text-w2"}`} /><span className="font-bold text-ink text-base">{canEdit ? firebaseUser.displayName : "تجربة فقط — سجّل الدخول للحفظ"}</span></span>
+                <ChevronRight className="w-4 h-4 text-ink-faint rotate-180" />
+              </button>
+            </section>
+
+            <section>
+              <div className="flex flex-row-reverse items-center justify-between mb-2.5">
                 <h2 className="text-[11px] font-bold uppercase tracking-[0.14em] text-ink-faint">خططي</h2>
                 <button onClick={guard(() => setNewPlanOpen(true))} className="text-sm font-bold text-charge flex items-center gap-1 hover:text-charge-strong"><Plus className="w-4 h-4" /> جديدة</button>
               </div>
@@ -1806,7 +2016,7 @@ export default function TrainingLog() {
                     <div key={p.id} className={`rounded-2xl p-4 flex items-center gap-3 ${p.id === activePlanId ? "bg-charge" : "bg-card border border-line"}`}>
                       <button onClick={() => switchPlan(p.id)} className="flex-1 min-w-0 text-left">
                         <p className={`font-black truncate ${p.id === activePlanId ? "text-paper" : "text-ink"}`}>{p.name}</p>
-                        <p className={`text-xs ${p.id === activePlanId ? "text-paper/65" : "text-ink-faint"}`}>{LEVELS.find((l) => l.id === p.level)?.name || "مخصصة"} · {p.days.length} أيام/أسبوع{p.author ? ` · بواسطة ${p.author}` : ""}{p.shareCode ? " · مُشاركة برمز" : ""}{p.publicSubmitted ? " · مُرسلة" : ""}</p>
+                        <p className={`text-xs ${p.id === activePlanId ? "text-paper/65" : "text-ink-faint"}`}>{LEVELS.find((l) => l.id === p.level)?.name || "مخصصة"} · {p.days.length} أيام/أسبوع{p.author ? ` · بواسطة ${p.author}` : ""}{p.shareCode ? " · مُشاركة برمز" : ""}{p.publicShareId ? " · مُرسلة للمجتمع" : ""}</p>
                       </button>
                       {p.id === activePlanId && <span className="shrink-0 w-7 h-7 rounded-full bg-paper flex items-center justify-center"><Check className="w-4 h-4 text-charge" /></span>}
                       <button onClick={() => { if (!isOnline) return; if (!canEdit) { setSyncOpen(true); return; } setShareOpen(p); }} disabled={!isOnline} className={`shrink-0 p-2 rounded-lg disabled:opacity-30 ${p.id === activePlanId ? "text-paper/60 hover:text-paper" : "text-ink-faint hover:text-charge"}`} aria-label="مشاركة الخطة"><Send className="w-4 h-4" /></button>
@@ -1822,15 +2032,9 @@ export default function TrainingLog() {
               </div>
             </section>
 
-            {isAdminUser && <AdminPanel user={firebaseUser} />}
+            {canEdit && <ContactPanel user={firebaseUser} />}
 
-            <section>
-              <h2 className="text-[11px] font-bold uppercase tracking-[0.14em] text-ink-faint mb-2.5">الملف الشخصي</h2>
-              <button onClick={() => isOnline && setSyncOpen(true)} disabled={!isOnline} className="w-full flex items-center justify-between gap-2 bg-card border border-line rounded-2xl px-4 py-3.5 disabled:opacity-40 hover:border-ink-faint transition-colors">
-                <span className="flex items-center gap-2.5"><Cloud className={`w-5 h-5 ${canEdit ? "text-charge" : "text-w2"}`} /><span className="font-bold text-ink text-base">{canEdit ? firebaseUser.displayName : "تجربة فقط — سجّل الدخول للحفظ"}</span></span>
-                <ChevronRight className="w-4 h-4 text-ink-faint" />
-              </button>
-            </section>
+            {isAdminUser && <AdminPanel user={firebaseUser} />}
 
             {!pwa.isStandalone && (
               <section>
@@ -1838,19 +2042,14 @@ export default function TrainingLog() {
                 <div className="space-y-2">
                   <a href={APK_DOWNLOAD_URL} download className="w-full flex items-center justify-between gap-2 bg-card border border-line rounded-2xl px-4 py-3.5 hover:border-charge transition-colors">
                     <span className="flex items-center gap-2.5"><Download className="w-5 h-5 text-charge" /><span className="font-bold text-ink text-base">تحميل لأندرويد (APK)</span></span>
-                    <ChevronRight className="w-4 h-4 text-ink-faint" />
+                    <ChevronRight className="w-4 h-4 text-ink-faint rotate-180" />
                   </a>
-                  {pwa.canInstall ? (
-                    <button onClick={pwa.promptInstall} className="w-full flex items-center justify-between gap-2 bg-card border border-line rounded-2xl px-4 py-3.5 hover:border-charge transition-colors">
-                      <span className="flex items-center gap-2.5"><PlusSquare className="w-5 h-5 text-charge" /><span className="font-bold text-ink text-base">التثبيت على هذا الجهاز</span></span>
-                      <ChevronRight className="w-4 h-4 text-ink-faint" />
-                    </button>
-                  ) : pwa.isIos ? (
+                  {pwa.isIos && (
                     <div className="rounded-2xl border border-line bg-card px-4 py-3.5 text-sm text-ink-soft flex items-start gap-2.5">
                       <Share className="w-4 h-4 shrink-0 mt-0.5 text-ink-faint" />
                       <span>اضغط أيقونة <span className="font-bold text-ink">المشاركة</span> في سفاري، ثم <span className="font-bold text-ink">إضافة إلى الشاشة الرئيسية</span>.</span>
                     </div>
-                  ) : null}
+                  )}
                 </div>
               </section>
             )}
