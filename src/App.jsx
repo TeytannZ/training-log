@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback, useReducer } from "react";
 import { initializeApp, getApps } from "firebase/app";
 import { getAuth, GoogleAuthProvider, signInAnonymously, linkWithPopup, onAuthStateChanged, signInWithPopup, signInWithRedirect, signOut, createUserWithEmailAndPassword, signInWithEmailAndPassword } from "firebase/auth";
-import { getFirestore, doc, getDoc, setDoc, deleteDoc, collection, query, where, getDocs, addDoc, serverTimestamp } from "firebase/firestore";
+import { getFirestore, doc, getDoc, setDoc, deleteDoc, collection, query, where, getDocs, addDoc, serverTimestamp, onSnapshot, runTransaction } from "firebase/firestore";
 import {
   Plus, Pencil, Trash2, Camera, X, Check, Star, Dumbbell,
   Loader2, ChevronDown, Search, Download, Upload, ChevronRight,
@@ -66,15 +66,15 @@ const WEIGHT_INFO = {
 const WEIGHT_OPTIONS = ["Light", "Light-Medium", "Medium", "Medium-Heavy", "Heavy"];
 const STORAGE_KEY = "training-log-plans-v4";
 const ONBOARD_KEY = "training-log-onboarded";
-const emptyForm = { name: "", muscle: "", focus: false, sets: 3, reps: "", weight: "Medium", rest: "60 sec", image: null };
+const emptyForm = { name: "", muscle: "", focus: false, sets: 3, reps: "", weight: "Medium", rest: "60 sec", restBetweenExercises: "", image: null };
 // Self-hosted APK — place the file built by pwabuilder.com at this exact
 // path in your repo's public/ folder. Relative path so it resolves under
 // the /training-log/ base automatically. Keeps the whole install flow on
 // your own site — no GitHub, no third-party site, for anyone downloading.
 const APK_DOWNLOAD_URL = "./downloads/training-log.apk";
 
-function ex(id, name, muscle, focus, sets, reps, weight, rest, alt = []) {
-  return { id, name, muscle, focus, sets, reps, weight, rest, image: null, alt };
+function ex(id, name, muscle, focus, sets, reps, weight, rest, alt = [], restBetweenExercises = null) {
+  return { id, name, muscle, focus, sets, reps, weight, rest, image: null, alt, restBetweenExercises };
 }
 function mkDay(id, label, title, tagline, exercises) { return { id, label, title, tagline, exercises }; }
 
@@ -363,27 +363,84 @@ async function adminDeleteSharedPlan(planId) {
   await deleteDoc(doc(dbase, "sharedPlans", planId));
 }
 
-// ---- Messages (contact / feedback, e.g. "this plan has a small issue") ----
-// One collection, each doc a single message + at most one reply. Simple
-// on purpose — this is for occasional feedback, not a live chat.
-async function sendMessage(uid, name, body, planContext) {
+// ---- Messages (contact / feedback — works like a normal chat: text,
+// an optional photo, and an optional link for anything too big to
+// attach directly, like a video) ----
+// One collection, each doc a single message + at most one reply.
+async function sendMessage(uid, name, body, image, link, planContext) {
   await addDoc(collection(dbase, "messages"), {
-    fromUid: uid, fromName: name, body,
+    fromUid: uid, fromName: name, body, image: image || null, link: link || null,
     planId: planContext?.id || null, planName: planContext?.name || null,
     status: "open", reply: null, createdAt: serverTimestamp(), repliedAt: null,
+    seenByAdmin: false, seenByUser: true,
   });
 }
-async function fetchMyMessages(uid) {
+// Realtime — the list updates itself the moment a reply lands, no
+// refresh needed, same as any normal chat app.
+function subscribeMyMessages(uid, cb) {
   const q = query(collection(dbase, "messages"), where("fromUid", "==", uid));
-  const snap = await getDocs(q);
-  return snap.docs.map((d) => ({ id: d.id, ...d.data() })).sort((a, b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0));
+  return onSnapshot(q, (snap) => {
+    const items = snap.docs.map((d) => ({ id: d.id, ...d.data() })).sort((a, b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0));
+    cb(items);
+  });
 }
-async function fetchAllMessages() {
-  const snap = await getDocs(collection(dbase, "messages"));
-  return snap.docs.map((d) => ({ id: d.id, ...d.data() })).sort((a, b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0));
+function subscribeAllMessages(cb) {
+  return onSnapshot(collection(dbase, "messages"), (snap) => {
+    const items = snap.docs.map((d) => ({ id: d.id, ...d.data() })).sort((a, b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0));
+    cb(items);
+  });
 }
 async function replyToMessage(id, replyText) {
-  await setDoc(doc(dbase, "messages", id), { reply: replyText, status: "replied", repliedAt: serverTimestamp() }, { merge: true });
+  await setDoc(doc(dbase, "messages", id), { reply: replyText, status: "replied", repliedAt: serverTimestamp(), seenByAdmin: true, seenByUser: false }, { merge: true });
+}
+async function clearReply(id) {
+  await setDoc(doc(dbase, "messages", id), { reply: null, status: "open", repliedAt: null, seenByUser: true }, { merge: true });
+}
+async function deleteMessage(id) {
+  await deleteDoc(doc(dbase, "messages", id));
+}
+async function markSeenByAdmin(ids) {
+  await Promise.all(ids.map((id) => setDoc(doc(dbase, "messages", id), { seenByAdmin: true }, { merge: true }).catch(() => {})));
+}
+async function markSeenByUser(ids) {
+  await Promise.all(ids.map((id) => setDoc(doc(dbase, "messages", id), { seenByUser: true }, { merge: true }).catch(() => {})));
+}
+// Free-tier housekeeping: no scheduled Cloud Function (that needs the
+// paid plan), so instead this runs opportunistically whenever the admin
+// opens the inbox and quietly clears out old, already-resolved threads
+// so storage doesn't grow forever. Nothing time-sensitive is ever
+// touched — only replied AND already-seen messages, and only once
+// they're 120+ days old.
+async function cleanupOldMessages() {
+  try {
+    const q = query(collection(dbase, "messages"), where("status", "==", "replied"));
+    const snap = await getDocs(q);
+    const cutoff = Date.now() - 120 * 24 * 3600 * 1000;
+    const stale = snap.docs.filter((d) => { const v = d.data(); return v.seenByUser && v.repliedAt?.seconds && v.repliedAt.seconds * 1000 < cutoff; });
+    await Promise.all(stale.map((d) => deleteDoc(d.ref).catch(() => {})));
+  } catch (err) { /* best-effort, never block the UI on this */ }
+}
+
+// ---- Soft rate limiting (message/submission spam) ----
+// This is enforced client-side via a per-user counter document, checked
+// with a transaction so two rapid taps can't both slip through. It's
+// good enough to stop accidental or casual spam; it is NOT airtight
+// against someone deliberately calling Firestore directly instead of
+// using the app — real hardening against that needs a paid Cloud
+// Function, which is out of scope for a free-tier app like this one.
+async function checkAndBumpRateLimit(uid, kind, max, windowMs) {
+  const ref = doc(dbase, "rateLimits", uid, "kinds", kind);
+  try {
+    return await runTransaction(dbase, async (tx) => {
+      const snap = await tx.get(ref);
+      const now = Date.now();
+      let data = snap.exists() ? snap.data() : { windowStart: now, count: 0 };
+      if (now - data.windowStart > windowMs) data = { windowStart: now, count: 0 };
+      if (data.count >= max) return false;
+      tx.set(ref, { windowStart: data.windowStart, count: data.count + 1 });
+      return true;
+    });
+  } catch (err) { return true; } // fail open — never block a legit user over our own limiter breaking
 }
 
 // ---- Shared UI ----
@@ -399,8 +456,8 @@ const sheetClass = "bg-card w-full sm:max-w-md sm:rounded-2xl rounded-t-2xl max-
 const WEIGHT_LABEL_AR = { Light: "خفيف", "Light-Medium": "خفيف-متوسط", Medium: "متوسط", "Medium-Heavy": "متوسط-ثقيل", Heavy: "ثقيل" };
 function wLabel(w) { return WEIGHT_LABEL_AR[w] || w; }
 
-const EXNAME_AR = {"Weighted pull-up": "سحب عقلة بوزن إضافي", "Chest-supported row": "تجديف بإسناد الصدر", "Incline dumbbell press": "ضغط دمبل مائل", "Face pull": "سحب للوجه", "Barbell shrug": "هز أكتاف بالبار", "Cable curl — short head (elbows forward)": "بايسبس كيبل — الرأس القصير", "Cable curl — long head (elbows back)": "بايسبس كيبل — الرأس الطويل", "Back squat": "قرفصاء خلفية", "Romanian deadlift": "رفعة رومانية ميتة", "Hip thrust": "دفع الحوض", "Leg extension": "فرد الساق", "Standing calf raise": "رفع سمانة واقفاً", "Hanging leg raise": "رفع الأرجل معلقاً", "Flat barbell bench press": "بنش بار مستوٍ", "Weighted dips": "متوازي بوزن إضافي", "Lat pulldown, underhand grip": "سحب علوي بقبضة معكوسة", "Cable lateral raise (leaning away)": "رفع جانبي كيبل (مائل بعيداً)", "Rear-delt cable fly (45°)": "فراشة كيبل للكتف الخلفي", "Overhead one-arm cable extension": "فرد ترايسبس كيبل فوق الرأس", "One-arm cable pushdown": "دفع كيبل للأسفل بيد واحدة", "Deadlift (conventional or RDL)": "رفعة ميتة (تقليدية أو رومانية)", "Bulgarian split squat": "قرفصاء بلغارية", "Lying leg curl": "ثني الساق مستلقياً", "Hip abduction machine": "جهاز إبعاد الورك", "Seated calf raise": "رفع سمانة جالساً", "Weighted plank / Pallof press": "بلانك بوزن / دفع بالوف", "Flat bench press": "بنش مستوٍ", "Seated cable row": "تجديف كيبل جالساً", "Plank": "بلانك", "Overhead press": "ضغط كتف فوق الرأس", "Lat pulldown": "سحب علوي", "Hanging knee raise": "رفع الركبتين معلقاً", "Dumbbell shrug": "هز أكتاف بالدمبل", "Leg press": "مكبس الأرجل", "Seated cable row (wide grip)": "تجديف كيبل جالساً (قبضة عريضة)", "Bicep curl": "بايسبس كيرل", "Triceps pushdown": "دفع ترايسبس للأسفل", "Leg curl": "ثني الساق", "Cable crunch": "كرانش كيبل", "EZ bar curl": "بايسبس بار EZ", "Deadlift": "رفعة ميتة", "Walking lunge": "لنج متحرك", "Pull-up (assisted if needed)": "عقلة (بمساعدة إن لزم)", "Lateral raise": "رفع جانبي", "Weighted step-up": "صعود درجة بوزن إضافي", "Calf raise on leg press": "رفع سمانة على مكبس الأرجل", "Reverse crunch": "كرانش عكسي", "Suitcase carry": "حمل الحقيبة", "Cable lateral raise": "رفع جانبي كيبل", "Prone Y-raise": "رفع Y مستلقياً", "Cable external rotation": "دوران خارجي كيبل", "Reverse curl": "كيرل معكوس", "Farmer's hold": "حمل المزارع", "Dips": "متوازي", "Pull-up": "عقلة", "Lat pulldown, wide grip": "سحب علوي بقبضة عريضة", "Incline barbell press": "بنش بار مائل", "Reverse pec-deck fly": "فراشة عكسية", "Cable shrug": "هز أكتاف كيبل", "Hack squat": "هاك سكوات", "Cable pull-through": "سحب كيبل من بين الأرجل", "Flat dumbbell press": "بنش دمبل مستوٍ", "Close-grip bench press": "بنش بقبضة ضيقة", "Chin-ups": "عقلة بقبضة معكوسة", "Dumbbell lateral raise": "رفع جانبي بالدمبل", "Machine reverse fly": "فراشة عكسية بالجهاز", "Trap bar deadlift": "رفعة ميتة بار مثلث", "Banded lateral walk": "مشي جانبي بشريط مقاومة", "Side plank": "بلانك جانبي"};
-const MUSCLE_AR = {"Back": "الظهر", "Chest": "الصدر", "Rear delt / traps": "الكتف الخلفي / الترابيس", "Traps": "الترابيس", "Biceps": "البايسبس", "Quads": "الفخذ الأمامي", "Hamstrings": "الهامسترينغ", "Glutes": "المؤخرة", "Calves": "السمانة", "Core": "الجذع", "Chest / triceps": "الصدر / الترايسبس", "Delts": "الكتفين", "Rear delt": "الكتف الخلفي", "Triceps": "الترايسبس", "Hamstrings / glutes": "الهامسترينغ / المؤخرة", "Glute medius": "المؤخرة الوسطى", "Core (anti-rotation)": "الجذع (مضاد للدوران)", "Quads / glutes": "الفخذ الأمامي / المؤخرة", "Posterior chain": "السلسلة الخلفية", "Quads / glute max": "الفخذ الأمامي / المؤخرة الكبرى", "Glute max": "المؤخرة الكبرى", "Core (anti-lateral-flexion)": "الجذع (مضاد للانحناء الجانبي)", "Delts (front)": "الكتف الأمامي", "Delts (side)": "الكتف الجانبي", "Lower traps / posture": "الترابيس السفلية / القوام", "Rotator cuff / shoulder posture": "الكفة المدورة / قوام الكتف", "Forearms": "الساعدين", "Forearms / grip": "الساعدين / القبضة", "Hamstrings / glute max": "الهامسترينغ / المؤخرة الكبرى", "Chest (upper)": "الصدر (العلوي)", "Chest (lower) / triceps": "الصدر (السفلي) / الترايسبس"};
+const EXNAME_AR = {"Weighted pull-up": "عقلة بوزن إضافي", "Chest-supported row": "تجديف بإسناد الصدر", "Incline dumbbell press": "ضغط دمبل مائل", "Face pull": "سحب للوجه", "Barbell shrug": "هز الكتفين بالبار", "Cable curl — short head (elbows forward)": "بايسبس الكيبل (الرأس القصير)", "Cable curl — long head (elbows back)": "بايسبس الكيبل (الرأس الطويل)", "Back squat": "القرفصاء الخلفية", "Romanian deadlift": "الرفعة الرومانية", "Hip thrust": "دفع الحوض", "Leg extension": "فرد الساق", "Standing calf raise": "رفع الكعبين واقفًا", "Hanging leg raise": "رفع الأرجل على العقلة", "Flat barbell bench press": "ضغط البنش المستوي", "Weighted dips": "المتوازي بوزن إضافي", "Lat pulldown, underhand grip": "السحب الأمامي بقبضة معكوسة", "Cable lateral raise (leaning away)": "رفع جانبي بالكيبل (مائلًا بعيدًا)", "Rear-delt cable fly (45°)": "فراشة الكيبل للكتف الخلفي", "Overhead one-arm cable extension": "فرد الترايسبس بالكيبل فوق الرأس", "One-arm cable pushdown": "دفع الترايسبس بالكيبل بيد واحدة", "Deadlift (conventional or RDL)": "الرفعة الميتة (تقليدية أو رومانية)", "Bulgarian split squat": "القرفصاء البلغارية", "Lying leg curl": "ثني الساق مستلقيًا", "Hip abduction machine": "جهاز إبعاد الفخذ", "Seated calf raise": "رفع الكعبين جالسًا", "Weighted plank / Pallof press": "بلانك بوزن إضافي / دفع بالوف", "Flat bench press": "ضغط البنش المستوي", "Seated cable row": "تجديف الكيبل جالسًا", "Plank": "بلانك", "Overhead press": "ضغط الكتف فوق الرأس", "Lat pulldown": "السحب الأمامي", "Hanging knee raise": "رفع الركبتين على العقلة", "Dumbbell shrug": "هز الكتفين بالدمبل", "Leg press": "مكبس الأرجل", "Seated cable row (wide grip)": "تجديف الكيبل جالسًا (قبضة عريضة)", "Bicep curl": "بايسبس كيرل", "Triceps pushdown": "دفع الترايسبس", "Leg curl": "ثني الساق", "Cable crunch": "كرانش الكيبل", "EZ bar curl": "بايسبس بار EZ", "Deadlift": "الرفعة الميتة", "Walking lunge": "طعنة المشي", "Pull-up (assisted if needed)": "عقلة (بمساعدة إن لزم)", "Lateral raise": "رفع جانبي", "Weighted step-up": "صعود الدرج بوزن إضافي", "Calf raise on leg press": "رفع الكعبين على مكبس الأرجل", "Reverse crunch": "كرانش عكسي", "Suitcase carry": "حمل الحقيبة", "Cable lateral raise": "رفع جانبي بالكيبل", "Prone Y-raise": "رفع Y مستلقيًا", "Cable external rotation": "الدوران الخارجي بالكيبل", "Reverse curl": "كيرل معكوس", "Farmer's hold": "حمل المزارع", "Dips": "المتوازي", "Pull-up": "عقلة", "Lat pulldown, wide grip": "السحب الأمامي بقبضة عريضة", "Incline barbell press": "ضغط البار المائل", "Reverse pec-deck fly": "الفراشة العكسية", "Cable shrug": "هز الكتفين بالكيبل", "Hack squat": "الهاك سكوات", "Cable pull-through": "سحب الكيبل من بين الساقين", "Flat dumbbell press": "ضغط الدمبل المستوي", "Close-grip bench press": "ضغط البنش بقبضة ضيقة", "Chin-ups": "عقلة بقبضة معكوسة", "Dumbbell lateral raise": "رفع جانبي بالدمبل", "Machine reverse fly": "الفراشة العكسية بالجهاز", "Trap bar deadlift": "الرفعة الميتة ببار مثلث", "Banded lateral walk": "المشي الجانبي بشريط المقاومة", "Side plank": "بلانك جانبي"};
+const MUSCLE_AR = {"Back": "الظهر", "Chest": "الصدر", "Rear delt / traps": "الكتف الخلفي والترابيس", "Traps": "الترابيس", "Biceps": "البايسبس", "Quads": "الفخذ الأمامي", "Hamstrings": "الفخذ الخلفي", "Glutes": "الأرداف", "Calves": "السمانة", "Core": "البطن", "Chest / triceps": "الصدر والترايسبس", "Delts": "الكتفين", "Rear delt": "الكتف الخلفي", "Triceps": "الترايسبس", "Hamstrings / glutes": "الفخذ الخلفي والأرداف", "Glute medius": "جانب الأرداف", "Core (anti-rotation)": "البطن (ثبات ضد الالتواء)", "Quads / glutes": "الفخذ الأمامي والأرداف", "Posterior chain": "الظهر والأرداف", "Quads / glute max": "الفخذ الأمامي والأرداف", "Glute max": "الأرداف", "Core (anti-lateral-flexion)": "البطن (ثبات جانبي)", "Delts (front)": "الكتف الأمامي", "Delts (side)": "الكتف الجانبي", "Lower traps / posture": "الترابيس السفلية والقوام", "Rotator cuff / shoulder posture": "استقرار الكتف", "Forearms": "الساعدين", "Forearms / grip": "الساعدين وقوة القبضة", "Hamstrings / glute max": "الفخذ الخلفي والأرداف", "Chest (upper)": "الصدر العلوي", "Chest (lower) / triceps": "الصدر السفلي والترايسبس"};
 // Shows "Arabic (English original)" so exercises stay searchable on
 // YouTube/Google in the term most fitness content actually uses, per
 // Spirito's choice to keep both rather than Arabic-only.
@@ -563,7 +620,7 @@ function ExerciseModal({ initial, onCancel, onSave, title }) {
         <div className="p-5 pt-4 space-y-4">
           <Field label="اسم التمرين">
             <input value={form.name} onChange={set("name")} placeholder="ابدأ الكتابة — التمارين المعروفة تكتمل تلقائياً" list="exercise-library-names" className={inputClass} />
-            <datalist id="exercise-library-names">{EXERCISE_LIBRARY.map((e) => <option key={e.name} value={e.name} />)}</datalist>
+            <datalist id="exercise-library-names">{RUNTIME_LIBRARY.map((e) => <option key={e.name} value={e.name} />)}</datalist>
             {match && (
               <button type="button" onClick={applyLibrary} className="mt-2 inline-flex items-center gap-1.5 text-sm font-bold text-charge-strong bg-charge-soft px-3 py-1.5 rounded-full"><Check className="w-3.5 h-3.5" /> استخدام العضلة/المجموعات/التكرارات القياسية لـ"{match.name}"</button>
             )}
@@ -583,6 +640,9 @@ function ExerciseModal({ initial, onCancel, onSave, title }) {
             <Field label="التكرارات"><input value={form.reps} onChange={set("reps")} placeholder="8-12" className={inputClass} /></Field>
             <Field label="الراحة"><input value={form.rest} onChange={set("rest")} placeholder="90 ثانية" className={inputClass} /></Field>
           </div>
+          <Field label="الراحة قبل التمرين التالي (اختياري)">
+            <input value={form.restBetweenExercises || ""} onChange={(e) => setForm((f) => ({ ...f, restBetweenExercises: e.target.value }))} placeholder={`تلقائياً: نفس مدة الراحة أعلاه (${form.rest || "90 ثانية"})`} className={inputClass} />
+          </Field>
           <Field label="الوزن">
             <div className="flex flex-wrap gap-2">
               {WEIGHT_OPTIONS.map((w) => (
@@ -830,7 +890,11 @@ function ShareModal({ plan, user, onCancel, onPatchPlan }) {
 
   const submitPublic = async () => {
     setPubState("sending");
-    try { const id = await submitPlanForReview(plan, user.uid, user.displayName, description); onPatchPlan({ publicShareId: id, publicApproved: false }); setPubState("sent"); }
+    try {
+      const ok = await checkAndBumpRateLimit(user.uid, "submissions", 3, 60 * 60 * 1000);
+      if (!ok) { setPubState("limited"); return; }
+      const id = await submitPlanForReview(plan, user.uid, user.displayName, description); onPatchPlan({ publicShareId: id, publicApproved: false }); setPubState("sent");
+    }
     catch (err) { setPubState("error"); }
   };
   const pushUpdate = async () => {
@@ -911,6 +975,7 @@ function ShareModal({ plan, user, onCancel, onPatchPlan }) {
                 ) : (
                   <>
                     {pubState === "error" && <p className="text-xs text-danger mb-2">حدث خطأ ما — حاول مرة أخرى.</p>}
+                    {pubState === "limited" && <p className="text-xs text-danger mb-2">عدد كبير من الإرسالات خلال ساعة — حاول لاحقًا.</p>}
                     <button disabled={pubState === "sending"} onClick={submitPublic} className="w-full py-3 rounded-xl text-sm font-bold bg-mist text-ink hover:bg-line/60 disabled:opacity-40 transition-colors">
                       {pubState === "sending" ? "جارٍ الإرسال…" : "إرسال للمراجعة"}
                     </button>
@@ -986,6 +1051,106 @@ function JoinSharedPlanCard({ onJoin }) {
 // gate is Firestore Security Rules (see firestore.rules) — this UI simply
 // doesn't render for anyone not in ADMIN_UIDS, and every action it takes
 // still goes through rules on the way to the server.
+// Admin-only content management for the exercise library — an image and
+// video attached here applies automatically the moment anyone (admin or
+// not) picks that exercise name, so most users never need to search for
+// or upload their own photo unless it's a genuinely new exercise.
+function LibraryEntryModal({ entry, onCancel, onSaved }) {
+  const isNew = !entry.id;
+  const [form, setForm] = useState({
+    name: entry.name || "", nameAr: entry.nameAr || "", muscle: entry.muscle || "", muscleAr: entry.muscleAr || "",
+    sets: entry.sets || 3, reps: entry.reps || "", weight: entry.weight || "Medium", rest: entry.rest || "60 sec",
+    image: entry.image || null, youtubeId: entry.youtubeId || "",
+  });
+  const [videoUrl, setVideoUrl] = useState(entry.youtubeId ? `https://youtu.be/${entry.youtubeId}` : "");
+  const [saving, setSaving] = useState(false);
+  const canSave = form.name.trim() && form.muscle.trim();
+  const save = async () => {
+    setSaving(true);
+    const slug = entry.id || slugify(form.name);
+    try { await adminSaveLibraryEntry(slug, { ...form, sets: Number(form.sets) || 1 }); onSaved(); }
+    catch (err) { setSaving(false); }
+  };
+  return (
+    <div className="fixed inset-0 z-[70] flex items-end sm:items-center justify-center bg-black/60 backdrop-blur-[2px]" onClick={onCancel}>
+      <div className={sheetClass} onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-between px-5 py-4 border-b border-line">
+          <h2 className="text-xl font-black text-ink font-display">{isNew ? "إضافة تمرين للمكتبة" : "تعديل التمرين"}</h2>
+          <button onClick={onCancel} className="p-2 -mr-2 rounded-full text-ink-faint hover:bg-mist"><X className="w-5 h-5" /></button>
+        </div>
+        <BigPhoto image={form.image} onPick={(img) => setForm((f) => ({ ...f, image: img }))} />
+        <div className="p-5 space-y-4">
+          <Field label="الاسم بالإنجليزية">
+            <input value={form.name} disabled={!isNew} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} className={inputClass + (isNew ? "" : " opacity-60")} />
+            {!isNew && <p className="text-xs text-ink-faint mt-1">لا يمكن تغييره — يُستخدم للمطابقة مع خطط موجودة.</p>}
+          </Field>
+          <Field label="الاسم بالعربية"><input value={form.nameAr} onChange={(e) => setForm((f) => ({ ...f, nameAr: e.target.value }))} className={inputClass} /></Field>
+          <Field label="العضلة بالإنجليزية"><input value={form.muscle} onChange={(e) => setForm((f) => ({ ...f, muscle: e.target.value }))} className={inputClass} /></Field>
+          <Field label="العضلة بالعربية"><input value={form.muscleAr} onChange={(e) => setForm((f) => ({ ...f, muscleAr: e.target.value }))} className={inputClass} /></Field>
+          <div className="grid grid-cols-3 gap-3">
+            <Field label="مجموعات"><input type="number" min="1" value={form.sets} onChange={(e) => setForm((f) => ({ ...f, sets: e.target.value }))} className={inputClass} /></Field>
+            <Field label="تكرارات"><input value={form.reps} onChange={(e) => setForm((f) => ({ ...f, reps: e.target.value }))} className={inputClass} /></Field>
+            <Field label="راحة"><input value={form.rest} onChange={(e) => setForm((f) => ({ ...f, rest: e.target.value }))} className={inputClass} /></Field>
+          </div>
+          <Field label="الوزن الافتراضي">
+            <div className="flex flex-wrap gap-2">
+              {WEIGHT_OPTIONS.map((w) => (
+                <button key={w} type="button" onClick={() => setForm((f) => ({ ...f, weight: w }))} className={`inline-flex items-center gap-1.5 px-3.5 py-2.5 rounded-full text-sm font-bold ring-1 transition ${form.weight === w ? `${WEIGHT_INFO[w].bg} ${WEIGHT_INFO[w].text} ${WEIGHT_INFO[w].ring}` : "bg-mist text-ink-faint ring-line"}`}>
+                  <PlateIcon weight={w} size={12} />{wLabel(w)}
+                </button>
+              ))}
+            </div>
+          </Field>
+          <Field label="رابط فيديو (اختياري)">
+            <input value={videoUrl} onChange={(e) => { setVideoUrl(e.target.value); setForm((f) => ({ ...f, youtubeId: parseYoutubeId(e.target.value) || "" })); }} placeholder="رابط يوتيوب" className={inputClass} />
+          </Field>
+        </div>
+        <div className="sticky bottom-0 bg-card flex items-center gap-2 px-5 py-4 border-t border-line">
+          <button onClick={onCancel} className="flex-1 py-3.5 rounded-xl text-base font-bold text-ink-soft hover:bg-mist">إلغاء</button>
+          <button disabled={!canSave || saving} onClick={save} className="flex-1 py-3.5 rounded-xl text-base font-bold bg-charge text-paper disabled:opacity-30 hover:bg-charge-strong transition-colors flex items-center justify-center gap-1.5"><Check className="w-4 h-4" /> حفظ</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ExerciseLibraryAdmin() {
+  const [items, setItems] = useState(null);
+  const [editing, setEditing] = useState(null); // null | {} (new) | entry (edit)
+  const [q, setQ] = useState("");
+  const [busyId, setBusyId] = useState(null);
+  const load = async () => { setItems(null); try { setItems(await fetchExerciseLibrary()); } catch (err) { setItems([]); } };
+  useEffect(() => { load(); }, []);
+  const remove = async (id) => { setBusyId(id); try { await adminDeleteLibraryEntry(id); } catch (err) { /* ignore */ } await load(); setBusyId(null); };
+  const filtered = (items || []).filter((e) => !q.trim() || e.name.toLowerCase().includes(q.toLowerCase()) || (e.nameAr || "").includes(q));
+
+  return (
+    <div className="rounded-2xl border border-line bg-card p-4">
+      <div className="flex items-center justify-between mb-3">
+        <p className="text-xs font-bold text-ink-faint uppercase tracking-wide">مكتبة التمارين (صور وفيديوهات)</p>
+        <button onClick={() => setEditing({})} className="text-sm font-bold text-charge flex items-center gap-1 hover:text-charge-strong"><Plus className="w-4 h-4" /> إضافة</button>
+      </div>
+      {items && items.length > 0 && <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="بحث…" className={inputClass + " mb-3 text-sm py-2"} />}
+      {items === null && <p className="text-sm text-ink-faint flex items-center gap-2"><Loader2 className="w-4 h-4 animate-spin" /> جارٍ التحميل…</p>}
+      {items?.length === 0 && <p className="text-sm text-ink-faint">لا توجد عناصر بعد — أضف أول تمرين.</p>}
+      <div className="space-y-2 max-h-96 overflow-y-auto">
+        {filtered.map((e) => (
+          <div key={e.id} className="rounded-xl bg-mist p-2.5 flex items-center gap-2.5">
+            {e.image ? <img src={e.image} alt="" className="w-11 h-11 rounded-lg object-cover shrink-0" /> : <div className="w-11 h-11 rounded-lg bg-card flex items-center justify-center shrink-0"><Dumbbell className="w-4 h-4 text-ink-faint" /></div>}
+            <div className="flex-1 min-w-0">
+              <p className="font-bold text-sm text-ink truncate">{e.nameAr ? `${e.nameAr} (${e.name})` : e.name}</p>
+              <p className="text-xs text-ink-faint truncate">{e.muscleAr || e.muscle}</p>
+            </div>
+            <button onClick={() => setEditing(e)} className="p-2 rounded-lg text-ink-faint hover:text-ink hover:bg-card shrink-0" aria-label="تعديل"><Pencil className="w-3.5 h-3.5" /></button>
+            <button disabled={busyId === e.id} onClick={() => remove(e.id)} className="p-2 rounded-lg text-ink-faint hover:text-danger hover:bg-card shrink-0 disabled:opacity-40" aria-label="حذف"><Trash2 className="w-3.5 h-3.5" /></button>
+          </div>
+        ))}
+      </div>
+      {editing && <LibraryEntryModal entry={editing} onCancel={() => setEditing(null)} onSaved={() => { setEditing(null); load(); }} />}
+    </div>
+  );
+}
+
 function AdminPanel({ user }) {
   const [pending, setPending] = useState(null);
   const [live, setLive] = useState(null);
@@ -996,8 +1161,16 @@ function AdminPanel({ user }) {
 
   const loadPending = async () => { setPending(null); try { setPending(await fetchPendingSubmissions()); } catch (err) { setPending([]); } };
   const loadLive = async () => { setLive(null); try { setLive(await fetchLiveCommunityPlansForAdmin()); } catch (err) { setLive([]); } };
-  const loadMessages = async () => { setMessages(null); try { setMessages(await fetchAllMessages()); } catch (err) { setMessages([]); } };
-  useEffect(() => { loadPending(); loadLive(); loadMessages(); }, []);
+  useEffect(() => {
+    loadPending(); loadLive();
+    cleanupOldMessages(); // best-effort housekeeping, runs quietly
+    const unsub = subscribeAllMessages((items) => {
+      setMessages(items);
+      const unseen = items.filter((m) => !m.seenByAdmin).map((m) => m.id);
+      if (unseen.length) markSeenByAdmin(unseen);
+    });
+    return () => unsub();
+  }, []);
 
   const approve = async (id) => { setBusyId(id); try { await adminSetApproved(id, true); } catch (err) { /* ignore */ } await Promise.all([loadPending(), loadLive()]); setBusyId(null); };
   const reject = async (id) => { setBusyId(id); try { await adminDeleteSharedPlan(id); } catch (err) { /* ignore */ } await loadPending(); setBusyId(null); };
@@ -1010,8 +1183,10 @@ function AdminPanel({ user }) {
     if (!text) return;
     setBusyId(id);
     try { await replyToMessage(id, text); } catch (err) { /* ignore */ }
-    await loadMessages(); setBusyId(null);
+    setBusyId(null);
   };
+  const retractReply = async (id) => { setBusyId(id); try { await clearReply(id); } catch (err) { /* ignore */ } setBusyId(null); };
+  const removeMessage = async (id) => { setBusyId(id); try { await deleteMessage(id); } catch (err) { /* ignore */ } setBusyId(null); };
   const copyUid = () => { navigator.clipboard?.writeText(user.uid).then(() => { setCopied(true); setTimeout(() => setCopied(false), 1500); }); };
 
   return (
@@ -1073,16 +1248,18 @@ function AdminPanel({ user }) {
         <div className="space-y-3">
           {messages?.map((m) => (
             <div key={m.id} className="rounded-xl bg-mist p-3">
-              <p className="text-xs text-ink-faint mb-1">{m.fromName || "مجهول"}{m.planName ? ` · بخصوص "${m.planName}"` : ""}{m.status === "open" ? " · بانتظار الرد" : ""}</p>
+              <div className="flex items-start justify-between gap-2 mb-1">
+                <p className="text-xs text-ink-faint">{m.fromName || "مجهول"}{m.planName ? ` · بخصوص "${m.planName}"` : ""}{m.status === "open" ? " · بانتظار الرد" : ""}</p>
+                <button disabled={busyId === m.id} onClick={() => removeMessage(m.id)} className="shrink-0 text-ink-faint hover:text-danger" aria-label="حذف المحادثة"><Trash2 className="w-3.5 h-3.5" /></button>
+              </div>
               <p className="text-sm text-ink mb-2">{m.body}</p>
-              {m.reply ? (
-                <div className="rounded-lg bg-card border border-line p-2.5 text-sm text-ink-soft">ردّك: {m.reply}</div>
-              ) : (
-                <div className="flex gap-2">
-                  <input value={replyDrafts[m.id] || ""} onChange={(e) => setReplyDrafts((d) => ({ ...d, [m.id]: e.target.value }))} placeholder="اكتب رداً…" className="flex-1 rounded-lg border border-line bg-card px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-charge" />
-                  <button disabled={busyId === m.id} onClick={() => sendReply(m.id)} className="px-3 py-2 rounded-lg text-sm font-bold bg-charge text-paper disabled:opacity-40">إرسال</button>
-                </div>
-              )}
+              {m.image && <img src={m.image} alt="" className="w-24 h-24 rounded-lg object-cover mb-2" />}
+              {m.link && <a href={m.link} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-xs font-bold text-charge mb-2"><Send className="w-3 h-3" /> رابط مرفق</a>}
+              <div className="flex gap-2">
+                <input value={replyDrafts[m.id] ?? m.reply ?? ""} onChange={(e) => setReplyDrafts((d) => ({ ...d, [m.id]: e.target.value }))} placeholder="اكتب رداً…" className="flex-1 rounded-lg border border-line bg-card px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-charge" />
+                <button disabled={busyId === m.id} onClick={() => sendReply(m.id)} className="px-3 py-2 rounded-lg text-sm font-bold bg-charge text-paper disabled:opacity-40">{m.reply ? "تحديث" : "إرسال"}</button>
+                {m.reply && <button disabled={busyId === m.id} onClick={() => retractReply(m.id)} className="px-3 py-2 rounded-lg text-sm font-bold bg-danger-soft text-danger disabled:opacity-40">حذف الرد</button>}
+              </div>
             </div>
           ))}
         </div>
@@ -1133,32 +1310,62 @@ function CommunityPage({ onFork, isOnline }) {
 
 function ContactPanel({ user }) {
   const [body, setBody] = useState("");
+  const [image, setImage] = useState(null);
+  const [link, setLink] = useState("");
   const [state, setState] = useState("idle");
   const [mine, setMine] = useState(null);
-  const load = async () => { try { setMine(await fetchMyMessages(user.uid)); } catch (err) { setMine([]); } };
-  useEffect(() => { load(); }, []);
+  const fileRef = useRef(null);
+
+  useEffect(() => {
+    const unsub = subscribeMyMessages(user.uid, (items) => {
+      setMine(items);
+      const unseen = items.filter((m) => m.reply && !m.seenByUser).map((m) => m.id);
+      if (unseen.length) markSeenByUser(unseen);
+    });
+    return () => unsub();
+  }, [user.uid]);
+
   const send = async () => {
-    if (!body.trim()) return;
+    if (!body.trim() && !image) return;
     setState("sending");
-    try { await sendMessage(user.uid, user.displayName, body.trim(), null); setBody(""); setState("idle"); await load(); }
-    catch (err) { setState("error"); }
+    try {
+      const ok = await checkAndBumpRateLimit(user.uid, "messages", 5, 15 * 60 * 1000);
+      if (!ok) { setState("limited"); return; }
+      await sendMessage(user.uid, user.displayName, body.trim(), image, link.trim() || null, null);
+      setBody(""); setImage(null); setLink(""); setState("idle");
+    } catch (err) { setState("error"); }
   };
+
   return (
     <section>
       <h2 className="text-[11px] font-bold uppercase tracking-[0.14em] text-ink-faint mb-2.5">تواصل معي</h2>
       <div className="rounded-2xl border border-line bg-card p-4">
-        <p className="text-xs text-ink-faint mb-2">مشكلة في خطة، اقتراح، أي شيء — أرسل رسالة وسأرد عليك هنا.</p>
+        <p className="text-xs text-ink-faint mb-2">مشكلة في خطة، اقتراح، أي شيء — أرسل رسالة وسأرد عليك هنا. يمكنك إرفاق صورة أو رابط.</p>
         <textarea value={body} onChange={(e) => setBody(e.target.value)} rows={3} placeholder="اكتب رسالتك…" className={inputClass + " resize-none mb-2"} />
-        {state === "error" && <p className="text-xs text-danger mb-2">حدث خطأ ما — حاول مرة أخرى.</p>}
-        <button disabled={state === "sending" || !body.trim()} onClick={send} className="w-full py-2.5 rounded-xl text-sm font-bold bg-charge text-paper disabled:opacity-30 hover:bg-charge-strong transition-colors">
-          {state === "sending" ? "جارٍ الإرسال…" : "إرسال"}
-        </button>
+        {image && (
+          <div className="relative w-20 h-20 mb-2">
+            <img src={image} alt="" className="w-20 h-20 rounded-xl object-cover" />
+            <button onClick={() => setImage(null)} className="absolute -top-1.5 -left-1.5 w-5 h-5 rounded-full bg-danger text-white flex items-center justify-center"><X className="w-3 h-3" /></button>
+          </div>
+        )}
+        <input value={link} onChange={(e) => setLink(e.target.value)} placeholder="رابط فيديو أو ملف (اختياري)" className={inputClass + " mb-2 text-sm"} />
+        <div className="flex gap-2">
+          <button onClick={() => fileRef.current?.click()} className="p-2.5 rounded-xl bg-mist text-ink-soft hover:text-ink shrink-0" aria-label="إرفاق صورة"><Camera className="w-4 h-4" /></button>
+          <button disabled={state === "sending" || (!body.trim() && !image)} onClick={send} className="flex-1 py-2.5 rounded-xl text-sm font-bold bg-charge text-paper disabled:opacity-30 hover:bg-charge-strong transition-colors">
+            {state === "sending" ? "جارٍ الإرسال…" : "إرسال"}
+          </button>
+        </div>
+        <input ref={fileRef} type="file" accept="image/*" className="hidden" onChange={async (e) => { const f = e.target.files?.[0]; if (!f) return; try { setImage(await resizeImage(f, 600)); } catch (err) { /* ignore */ } e.target.value = ""; }} />
+        {state === "error" && <p className="text-xs text-danger mt-2">حدث خطأ ما — حاول مرة أخرى.</p>}
+        {state === "limited" && <p className="text-xs text-danger mt-2">رسائل كثيرة خلال وقت قصير — حاول مرة أخرى بعد قليل.</p>}
       </div>
       {mine && mine.length > 0 && (
         <div className="space-y-2 mt-2">
           {mine.map((m) => (
             <div key={m.id} className="rounded-xl bg-mist p-3">
               <p className="text-sm text-ink mb-1.5">{m.body}</p>
+              {m.image && <img src={m.image} alt="" className="w-24 h-24 rounded-lg object-cover mb-1.5" />}
+              {m.link && <a href={m.link} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-xs font-bold text-charge mb-1.5"><Send className="w-3 h-3" /> رابط مرفق</a>}
               {m.reply
                 ? <div className="rounded-lg bg-card border border-charge/20 p-2.5 text-sm text-ink-soft"><span className="font-bold text-charge">الرد: </span>{m.reply}</div>
                 : <p className="text-xs text-ink-faint">بانتظار الرد…</p>}
@@ -1336,10 +1543,38 @@ const EXERCISE_LIBRARY = [
   { name: "Bicep curl", muscle: "Biceps", sets: 2, reps: "10-12", weight: "Light-Medium", rest: "60 sec", image: null, youtubeId: null },
   { name: "Triceps pushdown", muscle: "Triceps", sets: 2, reps: "10-15", weight: "Medium", rest: "60 sec", image: null, youtubeId: null },
 ];
+// The hardcoded list above is the offline-safe seed. Once the app loads,
+// this gets merged with whatever the admin has added/fixed in Firestore
+// (see AdminPanel's exercise-library section) — remote entries win on a
+// name collision, so an admin edit always takes priority over the seed.
+let RUNTIME_LIBRARY = [...EXERCISE_LIBRARY];
+function mergeRemoteLibrary(remoteItems) {
+  const byName = new Map(RUNTIME_LIBRARY.map((e) => [e.name.toLowerCase(), e]));
+  remoteItems.forEach((r) => {
+    byName.set(r.name.toLowerCase(), { name: r.name, muscle: r.muscle, sets: r.sets, reps: r.reps, weight: r.weight, rest: r.rest, image: r.image || null, youtubeId: r.youtubeId || null });
+    // an admin-supplied Arabic name/muscle becomes the new translation —
+    // this is the self-serve fix path for any awkward wording, no code
+    // change needed
+    if (r.nameAr) EXNAME_AR[r.name] = r.nameAr;
+    if (r.muscleAr) MUSCLE_AR[r.muscle] = r.muscleAr;
+  });
+  RUNTIME_LIBRARY = Array.from(byName.values());
+}
+function slugify(name) { return (name || "").toLowerCase().trim().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "") || `x${Date.now()}`; }
+async function fetchExerciseLibrary() {
+  const snap = await getDocs(collection(dbase, "exerciseLibrary"));
+  return snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+}
+async function adminSaveLibraryEntry(slug, data) {
+  await setDoc(doc(dbase, "exerciseLibrary", slug), { ...data, updatedAt: serverTimestamp() }, { merge: true });
+}
+async function adminDeleteLibraryEntry(slug) {
+  await deleteDoc(doc(dbase, "exerciseLibrary", slug));
+}
 function findLibraryMatch(name) {
   const n = (name || "").trim().toLowerCase();
   if (!n) return null;
-  return EXERCISE_LIBRARY.find((e) => e.name.toLowerCase() === n) || null;
+  return RUNTIME_LIBRARY.find((e) => e.name.toLowerCase() === n) || null;
 }
 function youtubeEmbedUrl(id) { return `https://www.youtube-nocookie.com/embed/${id}`; }
 
@@ -1369,6 +1604,8 @@ function SessionStyles() {
       @keyframes tl-ring { 0% { opacity: .9; transform: scale(0.6); } 100% { opacity: 0; transform: scale(1.9); } }
       @keyframes tl-confetti { 0% { transform: translateY(0) rotate(0deg); opacity: 1; } 100% { transform: translateY(120px) rotate(540deg); opacity: 0; } }
       @keyframes tl-toast { 0% { opacity: 0; transform: translateY(-10px); } 12% { opacity: 1; transform: translateY(0); } 88% { opacity: 1; transform: translateY(0); } 100% { opacity: 0; transform: translateY(-6px); } }
+      @keyframes tl-fade-in { 0% { opacity: 0; transform: translateY(10px); } 100% { opacity: 1; transform: translateY(0); } }
+      .tl-fade-in { animation: tl-fade-in 0.35s ease-out; }
       .tl-pop { animation: tl-pop 0.32s cubic-bezier(.34,1.56,.64,1); }
       .tl-ring::after { content: ''; position: absolute; inset: 0; border-radius: 9999px; border: 3px solid currentColor; animation: tl-ring 0.6s ease-out; }
       .tl-confetti { animation: tl-confetti 1.1s ease-in forwards; }
@@ -1395,7 +1632,11 @@ function WorkoutSession({ day, onExit }) {
         const setsDone = s.setsDone + 1;
         if (setsDone >= action.totalSets) {
           const isLast = s.exIndex >= action.totalExercises - 1;
-          return isLast ? { ...s, setsDone, phase: "stretch" } : { ...s, setsDone: 0, exIndex: s.exIndex + 1, phase: "work" };
+          if (isLast) return { ...s, setsDone, phase: "stretch" };
+          // advance to the next exercise now; the "rest" screen shown
+          // right after already reflects it (setsDone===0 there tells
+          // the UI this is a between-exercise rest, not a between-set one)
+          return { ...s, setsDone: 0, exIndex: s.exIndex + 1, phase: "rest" };
         }
         return { ...s, setsDone, phase: "rest" };
       }
@@ -1462,6 +1703,12 @@ function WorkoutSession({ day, onExit }) {
         setToast({ done: currentEx.name, next: nextName });
         clearTimeout(toastTimer.current);
         toastTimer.current = setTimeout(() => setToast(null), 2200);
+        // rest before the next exercise's first set — a creator can set a
+        // distinct restBetweenExercises per exercise; otherwise this just
+        // reuses the same rest value as between sets, which is a
+        // reasonable default rather than forcing every plan to define it
+        restTotal.current = parseRestSeconds(currentEx.restBetweenExercises || currentEx.rest);
+        setRestLeft(restTotal.current);
       }
     }
     dispatch({ type: "COMPLETE_SET", totalSets: currentEx.sets, totalExercises });
@@ -1542,19 +1789,19 @@ function WorkoutSession({ day, onExit }) {
           )}
 
           {phase === "work" && currentEx && (
-            <>
-              <p className="text-ink/40 text-xs font-bold font-mono mb-1">التمرين {exIndex + 1} من {totalExercises}</p>
+            <div key={`work-${exIndex}`} className="tl-fade-in w-full flex flex-col items-center">
+              <p className="text-ink/40 text-xs font-bold font-mono mb-2">التمرين {exIndex + 1} من {totalExercises}</p>
               {currentEx.image
-                ? <img src={currentEx.image} alt="" className="w-[clamp(72px,14vw,104px)] h-[clamp(72px,14vw,104px)] rounded-2xl object-cover mb-3" />
-                : <div className="w-[clamp(72px,14vw,104px)] h-[clamp(72px,14vw,104px)] rounded-2xl bg-ink/10 mb-3 flex items-center justify-center"><Dumbbell className="w-8 h-8 text-ink/30" /></div>}
-              <h2 className="text-[clamp(1.25rem,4vw,1.75rem)] font-black font-display leading-tight mb-0.5">{exLabel(currentEx.name)}</h2>
-              <p className="text-ink/50 text-sm mb-1">{muscleLabel(currentEx.muscle)}</p>
-              <p className="text-ink/70 text-sm font-mono mb-5 flex items-center gap-2">{currentEx.reps} reps · <PlateBadge weight={currentEx.weight} /></p>
+                ? <img src={currentEx.image} alt="" className="w-[clamp(140px,32vw,220px)] h-[clamp(140px,32vw,220px)] rounded-3xl object-cover mb-4 shadow-lg" />
+                : <div className="w-[clamp(140px,32vw,220px)] h-[clamp(140px,32vw,220px)] rounded-3xl bg-ink/10 mb-4 flex items-center justify-center"><Dumbbell className="w-14 h-14 text-ink/30" /></div>}
+              <h2 className="text-[clamp(1.5rem,5.5vw,2.25rem)] font-black font-display leading-tight mb-1 text-center">{exLabel(currentEx.name)}</h2>
+              <p className="text-ink/50 text-base mb-2">{muscleLabel(currentEx.muscle)}</p>
+              <p className="text-ink/70 text-base font-mono mb-6 flex items-center gap-2">{currentEx.reps} تكرار · <PlateBadge weight={currentEx.weight} size="lg" /></p>
 
               <div className="flex gap-2 mb-6 flex-wrap justify-center max-w-xs">
                 {Array.from({ length: currentEx.sets }).map((_, i) => (
-                  <div key={i} className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-black font-mono transition-all ${i < setsDone ? "bg-charge text-paper" : "bg-ink/10 text-ink/30"} ${i === setsDone - 1 && popKey ? "tl-pop" : ""}`}>
-                    {i < setsDone ? <Check className="w-3.5 h-3.5" /> : i + 1}
+                  <div key={i} className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-black font-mono transition-all ${i < setsDone ? "bg-charge text-paper" : "bg-ink/10 text-ink/30"} ${i === setsDone - 1 && popKey ? "tl-pop" : ""}`}>
+                    {i < setsDone ? <Check className="w-4 h-4" /> : i + 1}
                   </div>
                 ))}
               </div>
@@ -1569,16 +1816,26 @@ function WorkoutSession({ day, onExit }) {
                 <span className="text-sm font-bold opacity-75 font-mono">من {currentEx.sets}</span>
                 <span className="text-xs font-bold mt-2 uppercase tracking-wide opacity-90">اضغط عند الانتهاء</span>
               </button>
-            </>
-          )}
+            </div>          )}
 
           {phase === "rest" && currentEx && (
-            <>
-              <p className="text-ink/50 text-sm mb-2">راحة قبل المجموعة {setsDone + 1}</p>
-              <div className={`text-[clamp(3rem,11vw,5rem)] font-black font-mono mb-4 tabular-nums ${accent.text}`}>{fmtClock(restLeft)}</div>
-              <p className="text-ink/40 text-sm mb-6">{exLabel(currentEx.name)}</p>
+            <div key={`rest-${exIndex}-${setsDone}`} className="tl-fade-in w-full flex flex-col items-center">
+              {setsDone === 0 ? (
+                <>
+                  <p className="text-ink/50 text-sm mb-2">راحة قبل التمرين التالي</p>
+                  <div className={`text-[clamp(3rem,11vw,5rem)] font-black font-mono mb-4 tabular-nums ${accent.text}`}>{fmtClock(restLeft)}</div>
+                  <p className="text-ink font-bold text-base mb-1">{exLabel(currentEx.name)}</p>
+                  <p className="text-ink/40 text-sm mb-6">{muscleLabel(currentEx.muscle)}</p>
+                </>
+              ) : (
+                <>
+                  <p className="text-ink/50 text-sm mb-2">راحة قبل المجموعة {setsDone + 1}</p>
+                  <div className={`text-[clamp(3rem,11vw,5rem)] font-black font-mono mb-4 tabular-nums ${accent.text}`}>{fmtClock(restLeft)}</div>
+                  <p className="text-ink/40 text-sm mb-6">{exLabel(currentEx.name)}</p>
+                </>
+              )}
               <button onClick={skipRest} className="px-6 py-2.5 rounded-xl text-sm font-bold text-ink/60 border border-ink/20 hover:bg-ink/10 transition-colors">تخطي الراحة</button>
-            </>
+            </div>
           )}
 
           {phase === "stretch" && (
@@ -1724,6 +1981,7 @@ export default function TrainingLog() {
   const [needsName, setNeedsName] = useState(false);
   const [syncStatus, setSyncStatus] = useState("idle");
   const [remoteChecked, setRemoteChecked] = useState(false);
+  const [unreadCount, setUnreadCount] = useState(0);
   const [syncError, setSyncError] = useState(false);
   const [isOnline, setIsOnline] = useState(typeof navigator === "undefined" ? true : navigator.onLine);
   const fileInputRef = useRef(null);
@@ -1760,7 +2018,8 @@ export default function TrainingLog() {
         if (res?.value) { const parsed = JSON.parse(res.value); if (Array.isArray(parsed?.plans) && parsed.plans.length) { localPlans = parsed.plans; localActiveId = parsed.activePlanId; } }
       } catch (err) { /* first run */ }
       if (localPlans) { setPlans(localPlans); const aid = localActiveId || localPlans[0].id; setActivePlanId(aid); setActiveDay(localPlans.find((p) => p.id === aid)?.days[0]?.id); }
-      try { const ob = await window.storage.get(ONBOARD_KEY, false); setOnboardStep(ob?.value ? "done" : "auth"); } catch (err) { setOnboardStep("auth"); }
+      try { const ob = await window.storage.get(ONBOARD_KEY, false); setOnboardStep(ob?.value ? "done" : "language"); } catch (err) { setOnboardStep("language"); }
+      try { mergeRemoteLibrary(await fetchExerciseLibrary()); } catch (err) { /* offline or none yet — the hardcoded seed still works fine */ }
       setLoaded(true);
     })();
 
@@ -1888,6 +2147,18 @@ export default function TrainingLog() {
     setNeedsName(false);
   };
 
+  // Unread-message badge for the bottom nav — realtime, live-updates
+  // without needing to open the You/Admin page first.
+  useEffect(() => {
+    if (!firebaseUser || firebaseUser.isAnonymous) { setUnreadCount(0); return; }
+    if (isAdmin(firebaseUser)) {
+      const unsub = subscribeAllMessages((items) => setUnreadCount(items.filter((m) => !m.seenByAdmin).length));
+      return () => unsub();
+    }
+    const unsub = subscribeMyMessages(firebaseUser.uid, (items) => setUnreadCount(items.filter((m) => m.reply && !m.seenByUser).length));
+    return () => unsub();
+  }, [firebaseUser]);
+
   if (!loaded || onboardStep === null) return <div className="w-full min-h-screen bg-paper flex items-center justify-center"><LevelBubble /></div>;
   if (onboardStep !== "done") return <OnboardingFlow step={onboardStep} onGoogle={doOnboardGoogle} onGuest={doOnboardGuest} onEmailAuth={doOnboardEmail} onTutorialDone={afterTutorial} onChoosePlan={chooseFirstPlan} status={syncStatus} error={onboardErrorMsg} />;
   if (!plan || !day) return <div className="w-full min-h-screen bg-paper flex items-center justify-center"><LevelBubble /></div>;
@@ -1906,6 +2177,11 @@ export default function TrainingLog() {
             <span className="font-display font-black text-ink text-sm truncate">{PAGE_TITLE[page]}</span>
           </div>
           <div className="flex items-center gap-2 shrink-0">
+            {!pwa.isStandalone && (
+              <a href={APK_DOWNLOAD_URL} download className="inline-flex items-center gap-1.5 text-xs font-bold text-paper bg-charge rounded-full pl-2.5 pr-3 py-1.5 hover:bg-charge-strong transition-colors">
+                <Download className="w-3.5 h-3.5" /> تحميل التطبيق
+              </a>
+            )}
             {!isOnline && (
               <span className="inline-flex items-center gap-1.5 text-xs font-bold text-ink-faint bg-mist rounded-full pl-2 pr-2.5 py-1">
                 <WifiOff className="w-3.5 h-3.5" /> غير متصل
@@ -1958,7 +2234,7 @@ export default function TrainingLog() {
             </nav>
 
             <div className="mb-5">
-              <p className="text-base text-ink-soft mb-3"><span className="font-bold text-ink">{day.tagline}</span><span className="text-line mx-1.5">·</span>{focusCount} تركيز، {day.exercises.length - focusCount} صيانة</p>
+              <p className="text-base text-ink-soft mb-3"><span className="font-bold text-ink">{day.tagline}</span><span className="text-line mx-1.5">·</span>{focusCount} تركيز، {day.exercises.length - focusCount} ثانوية</p>
               {day.exercises.length > 0 && (
                 <button onClick={() => setSessionOpen(true)} className="w-full py-4 rounded-2xl text-lg font-black bg-charge text-paper flex items-center justify-center gap-2 active:scale-[0.98] transition-transform shadow-lg shadow-charge/20 hover:bg-charge-strong">
                   <Dumbbell className="w-5 h-5" /> بدء التمرين
@@ -2013,16 +2289,24 @@ export default function TrainingLog() {
                       <div className="flex gap-2 shrink-0"><button onClick={() => setConfirmDeletePlan(null)} className="px-3 py-2 rounded-xl text-sm font-bold text-ink-soft hover:bg-mist">إلغاء</button><button onClick={() => deletePlan(p.id)} className="px-3 py-2 rounded-xl text-sm font-bold bg-danger text-white">حذف</button></div>
                     </div>
                   ) : (
-                    <div key={p.id} className={`rounded-2xl p-4 flex items-center gap-3 ${p.id === activePlanId ? "bg-charge" : "bg-card border border-line"}`}>
-                      <button onClick={() => switchPlan(p.id)} className="flex-1 min-w-0 text-left">
-                        <p className={`font-black truncate ${p.id === activePlanId ? "text-paper" : "text-ink"}`}>{p.name}</p>
-                        <p className={`text-xs ${p.id === activePlanId ? "text-paper/65" : "text-ink-faint"}`}>{LEVELS.find((l) => l.id === p.level)?.name || "مخصصة"} · {p.days.length} أيام/أسبوع{p.author ? ` · بواسطة ${p.author}` : ""}{p.shareCode ? " · مُشاركة برمز" : ""}{p.publicShareId ? " · مُرسلة للمجتمع" : ""}</p>
+                    <div key={p.id} className={`rounded-2xl overflow-hidden ${p.id === activePlanId ? "bg-charge" : "bg-card border border-line"}`}>
+                      <div className="p-4 flex items-center gap-3">
+                        <button onClick={() => switchPlan(p.id)} className="flex-1 min-w-0 text-left">
+                          <p className={`font-black truncate ${p.id === activePlanId ? "text-paper" : "text-ink"}`}>{p.name}</p>
+                          <p className={`text-xs ${p.id === activePlanId ? "text-paper/65" : "text-ink-faint"}`}>{LEVELS.find((l) => l.id === p.level)?.name || "مخصصة"} · {p.days.length} أيام/أسبوع{p.author ? ` · بواسطة ${p.author}` : ""}{p.shareCode ? " · مُشاركة برمز" : ""}{p.publicShareId ? " · مُرسلة للمجتمع" : ""}</p>
+                        </button>
+                        {p.id === activePlanId && <span className="shrink-0 w-7 h-7 rounded-full bg-paper flex items-center justify-center"><Check className="w-4 h-4 text-charge" /></span>}
+                        {plans.length > 1 && (
+                          <button onClick={guard(() => setConfirmDeletePlan(p.id))} className={`shrink-0 p-2 rounded-lg ${p.id === activePlanId ? "text-paper/60 hover:text-paper" : "text-ink-faint hover:text-danger"}`} aria-label="حذف الخطة"><Trash2 className="w-4 h-4" /></button>
+                        )}
+                      </div>
+                      <button
+                        onClick={() => { if (!isOnline) return; if (!canEdit) { setSyncOpen(true); return; } setShareOpen(p); }}
+                        disabled={!isOnline}
+                        className={`w-full flex items-center justify-center gap-1.5 py-2.5 text-sm font-bold border-t disabled:opacity-40 transition-colors ${p.id === activePlanId ? "border-paper/20 text-paper hover:bg-paper/10" : "border-line text-charge hover:bg-charge-soft"}`}
+                      >
+                        <Send className="w-4 h-4" /> مشاركة هذه الخطة
                       </button>
-                      {p.id === activePlanId && <span className="shrink-0 w-7 h-7 rounded-full bg-paper flex items-center justify-center"><Check className="w-4 h-4 text-charge" /></span>}
-                      <button onClick={() => { if (!isOnline) return; if (!canEdit) { setSyncOpen(true); return; } setShareOpen(p); }} disabled={!isOnline} className={`shrink-0 p-2 rounded-lg disabled:opacity-30 ${p.id === activePlanId ? "text-paper/60 hover:text-paper" : "text-ink-faint hover:text-charge"}`} aria-label="مشاركة الخطة"><Send className="w-4 h-4" /></button>
-                      {plans.length > 1 && (
-                        <button onClick={guard(() => setConfirmDeletePlan(p.id))} className={`shrink-0 p-2 rounded-lg ${p.id === activePlanId ? "text-paper/60 hover:text-paper" : "text-ink-faint hover:text-danger"}`} aria-label="حذف الخطة"><Trash2 className="w-4 h-4" /></button>
-                      )}
                     </div>
                   )
                 ))}
@@ -2075,7 +2359,10 @@ export default function TrainingLog() {
           ].map(({ id, label, Icon }) => (
             <button key={id} onClick={() => setPage(id)} className="relative flex flex-col items-center gap-1 py-2.5 active:opacity-70 transition-opacity">
               {page === id && <span className="absolute top-0 left-1/2 -translate-x-1/2 w-8 h-0.5 rounded-full bg-charge" />}
-              <Icon className={`w-5 h-5 transition-colors ${page === id ? "text-charge" : "text-ink-faint"}`} strokeWidth={2.25} />
+              <span className="relative">
+                <Icon className={`w-5 h-5 transition-colors ${page === id ? "text-charge" : "text-ink-faint"}`} strokeWidth={2.25} />
+                {id === "profile" && unreadCount > 0 && <span className="absolute -top-1 -left-1 w-2.5 h-2.5 rounded-full bg-danger border-2 border-card" />}
+              </span>
               <span className={`text-[10px] font-bold transition-colors ${page === id ? "text-charge" : "text-ink-faint"}`}>{label}</span>
             </button>
           ))}
