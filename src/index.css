@@ -186,6 +186,18 @@ body {
 .tl-scroll { scrollbar-width: none; -ms-overflow-style: none; }
 .tl-scroll::-webkit-scrollbar { display: none; }
 
+/* Every OTHER scrollable area gets a slim, theme-colored scrollbar
+   instead of the browser default — the thumb color is a CSS var, so
+   it automatically matches whichever theme is active. */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-line) transparent;
+}
+*::-webkit-scrollbar { width: 7px; height: 7px; }
+*::-webkit-scrollbar-track { background: transparent; }
+*::-webkit-scrollbar-thumb { background: var(--color-line); border-radius: 999px; }
+*::-webkit-scrollbar-thumb:hover { background: var(--color-charge); }
+
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {
     animation-duration: 0.001ms !important;
