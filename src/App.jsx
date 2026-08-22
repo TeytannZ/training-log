@@ -397,21 +397,21 @@ async function sendThreadMessage(uid, from, name, body, image, link) {
   }, { merge: true });
 }
 // Realtime — new messages (either side) appear the moment they land.
-function subscribeThreadMessages(uid, cb) {
+function subscribeThreadMessages(uid, cb, onError) {
   return onSnapshot(collection(dbase, "threads", uid, "messages"), (snap) => {
     const items = snap.docs.map((d) => ({ id: d.id, ...d.data() })).sort((a, b) => (a.createdAt?.seconds || 0) - (b.createdAt?.seconds || 0));
     cb(items);
-  });
+  }, (err) => { console.error("thread messages listener failed:", err); onError?.(err); });
 }
-function subscribeThread(uid, cb) {
-  return onSnapshot(doc(dbase, "threads", uid), (snap) => cb(snap.exists() ? { id: snap.id, ...snap.data() } : null));
+function subscribeThread(uid, cb, onError) {
+  return onSnapshot(doc(dbase, "threads", uid), (snap) => cb(snap.exists() ? { id: snap.id, ...snap.data() } : null), (err) => { console.error("thread listener failed:", err); onError?.(err); });
 }
 // Admin inbox — every thread, most-recently-active first.
-function subscribeAllThreads(cb) {
+function subscribeAllThreads(cb, onError) {
   return onSnapshot(collection(dbase, "threads"), (snap) => {
     const items = snap.docs.map((d) => ({ id: d.id, ...d.data() })).sort((a, b) => (b.updatedAt?.seconds || 0) - (a.updatedAt?.seconds || 0));
     cb(items);
-  });
+  }, (err) => { console.error("threads listener failed:", err); onError?.(err); });
 }
 async function markThreadSeen(uid, role) {
   try { await setDoc(doc(dbase, "threads", uid), role === "admin" ? { unreadForAdmin: false } : { unreadForUser: false }, { merge: true }); } catch (err) { /* best-effort */ }
@@ -1006,7 +1006,7 @@ function ShareModal({ plan, user, authorName, onCancel, onPatchPlan }) {
 
 // A lightweight, always-one-tap-away plan switcher — reachable straight
 // from the Train page instead of needing a trip to the You tab.
-function PlanSwitcherSheet({ plans, activePlanId, levels, onSwitch, onManage, onCancel }) {
+function PlanSwitcherSheet({ plans, activePlanId, levels, onSwitch, onNew, onManage, onCancel }) {
   return (
     <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/60 backdrop-blur-[2px]" onClick={onCancel}>
       <div className={sheetClass} onClick={(e) => e.stopPropagation()}>
@@ -1024,6 +1024,10 @@ function PlanSwitcherSheet({ plans, activePlanId, levels, onSwitch, onManage, on
               {p.id === activePlanId && <span className="shrink-0 w-6 h-6 rounded-full bg-paper flex items-center justify-center"><Check className="w-3.5 h-3.5 text-charge" /></span>}
             </button>
           ))}
+          <button onClick={onNew} className="w-full text-left rounded-2xl p-4 flex items-center gap-3 border-2 border-dashed border-line hover:border-charge hover:text-charge text-ink-faint transition-colors">
+            <span className="w-9 h-9 rounded-full bg-mist flex items-center justify-center shrink-0"><Plus className="w-4 h-4" /></span>
+            <span className="font-bold text-sm">خطة جديدة</span>
+          </button>
         </div>
         <div className="px-5 pb-5">
           <button onClick={onManage} className="w-full py-3 rounded-xl text-sm font-bold text-ink-faint hover:text-ink hover:bg-mist transition-colors">إدارة كل الخطط ←</button>
@@ -1164,22 +1168,24 @@ function ExerciseLibraryAdmin() {
   );
 }
 
-function AdminPanel({ user, onOpenInbox }) {
+function AdminPanel({ user }) {
   const [pending, setPending] = useState(null);
   const [live, setLive] = useState(null);
   const [busyId, setBusyId] = useState(null);
   const [copied, setCopied] = useState(false);
+  const [loadErr, setLoadErr] = useState(null);
+  const [actionErr, setActionErr] = useState(null);
 
-  const loadPending = async () => { setPending(null); try { setPending(await fetchPendingSubmissions()); } catch (err) { setPending([]); } };
-  const loadLive = async () => { setLive(null); try { setLive(await fetchLiveCommunityPlansForAdmin()); } catch (err) { setLive([]); } };
+  const loadPending = async () => { setPending(null); try { setPending(await fetchPendingSubmissions()); } catch (err) { setPending([]); setLoadErr(err?.message || String(err)); } };
+  const loadLive = async () => { setLive(null); try { setLive(await fetchLiveCommunityPlansForAdmin()); } catch (err) { setLive([]); setLoadErr(err?.message || String(err)); } };
   useEffect(() => { loadPending(); loadLive(); }, []);
 
-  const approve = async (id) => { setBusyId(id); try { await adminSetApproved(id, true); } catch (err) { /* ignore */ } await Promise.all([loadPending(), loadLive()]); setBusyId(null); };
-  const reject = async (id) => { setBusyId(id); try { await adminDeleteSharedPlan(id); } catch (err) { /* ignore */ } await loadPending(); setBusyId(null); };
-  const unpin = async (id) => { setBusyId(id); try { await adminSetApproved(id, false); } catch (err) { /* ignore */ } await Promise.all([loadPending(), loadLive()]); setBusyId(null); };
-  const remove = async (id) => { setBusyId(id); try { await adminDeleteSharedPlan(id); } catch (err) { /* ignore */ } await loadLive(); setBusyId(null); };
-  const toggleRecommend = async (p) => { setBusyId(p.id); try { await adminSetRecommended(p.id, !p.recommended); } catch (err) { /* ignore */ } await loadLive(); setBusyId(null); };
-  const clearAnnounced = async (id) => { setBusyId(id); try { await adminClearAnnounced(id); } catch (err) { /* ignore */ } await loadLive(); setBusyId(null); };
+  const approve = async (id) => { setBusyId(id); setActionErr(null); try { await adminSetApproved(id, true); } catch (err) { setActionErr(err?.message || String(err)); } await Promise.all([loadPending(), loadLive()]); setBusyId(null); };
+  const reject = async (id) => { setBusyId(id); setActionErr(null); try { await adminDeleteSharedPlan(id); } catch (err) { setActionErr(err?.message || String(err)); } await loadPending(); setBusyId(null); };
+  const unpin = async (id) => { setBusyId(id); setActionErr(null); try { await adminSetApproved(id, false); } catch (err) { setActionErr(err?.message || String(err)); } await Promise.all([loadPending(), loadLive()]); setBusyId(null); };
+  const remove = async (id) => { setBusyId(id); setActionErr(null); try { await adminDeleteSharedPlan(id); } catch (err) { setActionErr(err?.message || String(err)); } await loadLive(); setBusyId(null); };
+  const toggleRecommend = async (p) => { setBusyId(p.id); setActionErr(null); try { await adminSetRecommended(p.id, !p.recommended); } catch (err) { setActionErr(err?.message || String(err)); } await loadLive(); setBusyId(null); };
+  const clearAnnounced = async (id) => { setBusyId(id); setActionErr(null); try { await adminClearAnnounced(id); } catch (err) { setActionErr(err?.message || String(err)); } await loadLive(); setBusyId(null); };
   const copyUid = () => { navigator.clipboard?.writeText(user.uid).then(() => { setCopied(true); setTimeout(() => setCopied(false), 1500); }); };
 
   return (
@@ -1192,10 +1198,17 @@ function AdminPanel({ user, onOpenInbox }) {
 
       <ExerciseLibraryAdmin />
 
+      {(loadErr || actionErr) && (
+        <div className="rounded-2xl border border-danger/40 bg-danger-soft p-3.5">
+          <p className="text-xs font-bold text-danger mb-1">{actionErr ? "فشل الإجراء:" : "فشل التحميل:"}</p>
+          <p className="text-xs text-danger font-mono break-words">{actionErr || loadErr}</p>
+        </div>
+      )}
+
       <div className="rounded-2xl border border-line bg-card p-4">
         <p className="text-xs font-bold text-ink-faint uppercase tracking-wide mb-3">إرسالات قيد المراجعة</p>
         {pending === null && <p className="text-sm text-ink-faint flex items-center gap-2"><Loader2 className="w-4 h-4 animate-spin" /> جارٍ التحميل…</p>}
-        {pending?.length === 0 && <p className="text-sm text-ink-faint">لا شيء بانتظار المراجعة.</p>}
+        {pending?.length === 0 && !loadErr && <p className="text-sm text-ink-faint">لا شيء بانتظار المراجعة.</p>}
         <div className="space-y-2">
           {pending?.map((p) => (
             <div key={p.id} className="rounded-xl bg-mist p-3">
@@ -1215,7 +1228,7 @@ function AdminPanel({ user, onOpenInbox }) {
       <div className="rounded-2xl border border-line bg-card p-4">
         <p className="text-xs font-bold text-ink-faint uppercase tracking-wide mb-3">منشورة في المجتمع الآن</p>
         {live === null && <p className="text-sm text-ink-faint flex items-center gap-2"><Loader2 className="w-4 h-4 animate-spin" /> جارٍ التحميل…</p>}
-        {live?.length === 0 && <p className="text-sm text-ink-faint">لا توجد خطط منشورة حالياً.</p>}
+        {live?.length === 0 && !loadErr && <p className="text-sm text-ink-faint">لا توجد خطط منشورة حالياً.</p>}
         <div className="space-y-2">
           {live?.map((p) => (
             <div key={p.id} className="rounded-xl bg-mist p-3">
@@ -1236,10 +1249,6 @@ function AdminPanel({ user, onOpenInbox }) {
         </div>
       </div>
 
-      <button onClick={onOpenInbox} className="w-full flex items-center justify-between gap-2 bg-card border border-line rounded-2xl px-4 py-3.5 hover:border-ink-faint transition-colors">
-        <span className="font-bold text-ink text-sm">صندوق الرسائل</span>
-        <ChevronRight className="w-4 h-4 text-ink-faint rotate-180" />
-      </button>
     </section>
   );
 }
@@ -1311,6 +1320,7 @@ function ChatBubble({ msg, mine }) {
 
 function ChatThread({ threadUid, viewerRole, peerName, rateLimitUid }) {
   const [messages, setMessages] = useState(null);
+  const [loadError, setLoadError] = useState(false);
   const [body, setBody] = useState("");
   const [image, setImage] = useState(null);
   const [link, setLink] = useState("");
@@ -1320,8 +1330,8 @@ function ChatThread({ threadUid, viewerRole, peerName, rateLimitUid }) {
   const bottomRef = useRef(null);
 
   useEffect(() => {
-    setMessages(null);
-    const unsub = subscribeThreadMessages(threadUid, setMessages);
+    setMessages(null); setLoadError(false);
+    const unsub = subscribeThreadMessages(threadUid, (items) => { setMessages(items); setLoadError(false); }, () => setLoadError(true));
     markThreadSeen(threadUid, viewerRole);
     return () => unsub();
   }, [threadUid, viewerRole]);
@@ -1345,9 +1355,10 @@ function ChatThread({ threadUid, viewerRole, peerName, rateLimitUid }) {
   };
 
   return (
-    <div className="flex flex-col h-full">
-      <div className="flex-1 overflow-y-auto px-1 py-3 space-y-2.5">
-        {messages === null && <p className="text-sm text-ink-faint flex items-center gap-2 justify-center py-10"><Loader2 className="w-4 h-4 animate-spin" /> جارٍ التحميل…</p>}
+    <div className="flex flex-col h-full min-h-0">
+      <div className="flex-1 min-h-0 overflow-y-auto px-1 py-3 space-y-2.5">
+        {messages === null && !loadError && <p className="text-sm text-ink-faint flex items-center gap-2 justify-center py-10"><Loader2 className="w-4 h-4 animate-spin" /> جارٍ التحميل…</p>}
+        {loadError && <p className="text-sm text-danger text-center py-10 px-6">تعذر الاتصال بالمحادثة — تحقق من الاتصال بالإنترنت، أو أوقف أي مانع إعلانات مؤقتاً (يمنع أحياناً اتصال المحادثة الفوري).</p>}
         {messages?.length === 0 && (
           <p className="text-sm text-ink-faint text-center py-10 px-6">
             {viewerRole === "user" ? "مشكلة في خطة، اقتراح، أي شيء — ابدأ المحادثة." : "لا رسائل بعد في هذه المحادثة."}
@@ -1383,17 +1394,21 @@ function ChatThread({ threadUid, viewerRole, peerName, rateLimitUid }) {
           </button>
         </div>
         <input ref={fileRef} type="file" accept="image/*" className="hidden" onChange={async (e) => { const f = e.target.files?.[0]; if (!f) return; try { setImage(await resizeImage(f, 600)); } catch (err) { /* ignore */ } e.target.value = ""; }} />
-        {state === "error" && <p className="text-xs text-danger mt-1.5">حدث خطأ ما — حاول مرة أخرى.</p>}
+        {state === "error" && <p className="text-xs text-danger mt-1.5">تعذّر الإرسال — تحقق من الاتصال وحاول مرة أخرى.</p>}
         {state === "limited" && <p className="text-xs text-danger mt-1.5">رسائل كثيرة خلال وقت قصير — حاول مرة أخرى بعد قليل.</p>}
       </div>
     </div>
   );
 }
 
-// The user-facing "Chat" tab — just their own thread with the admin.
-function ChatPage({ user, authorName }) {
+// The Chat *tab* itself branches by role: a normal user only ever has
+// one conversation (with the admin) so it goes straight to that
+// thread; the admin has many conversations, so it's an inbox list
+// that opens into a thread — same idea as any chat app's main screen.
+function ChatPage({ user, authorName, isAdminUser }) {
+  if (isAdminUser) return <AdminInbox />;
   return (
-    <div className="flex flex-col" style={{ height: "calc(100vh - 3.5rem - 4.75rem - env(safe-area-inset-bottom))" }}>
+    <div className="flex flex-col h-full min-h-0">
       <div className="shrink-0 flex items-center gap-2.5 pb-3 border-b border-line">
         <div className="w-9 h-9 rounded-full bg-charge-soft text-charge flex items-center justify-center font-black shrink-0">؟</div>
         <div className="min-w-0">
@@ -1406,17 +1421,22 @@ function ChatPage({ user, authorName }) {
   );
 }
 
-// Admin inbox — list of every thread, tap in to reply. Rendered inside
-// a full-screen sheet from the profile page's admin tools.
+// Admin's conversation list — every thread that's messaged in, most
+// recently active first, tap in to reply. This IS the Chat tab when
+// signed in as admin (see ChatPage above), not a separate screen.
 function AdminInbox() {
   const [threads, setThreads] = useState(null);
+  const [loadError, setLoadError] = useState(false);
   const [openUid, setOpenUid] = useState(null);
-  useEffect(() => { const unsub = subscribeAllThreads(setThreads); return () => unsub(); }, []);
+  useEffect(() => {
+    const unsub = subscribeAllThreads((items) => { setThreads(items); setLoadError(false); }, () => setLoadError(true));
+    return () => unsub();
+  }, []);
 
   if (openUid) {
     const t = threads?.find((x) => x.id === openUid);
     return (
-      <div className="flex flex-col h-full">
+      <div className="flex flex-col h-full min-h-0">
         <div className="shrink-0 flex items-center gap-2 pb-3 border-b border-line">
           <button onClick={() => setOpenUid(null)} className="p-2 -mr-1 rounded-full text-ink-faint hover:bg-mist shrink-0" aria-label="رجوع"><ChevronRight className="w-4 h-4" /></button>
           <p className="font-black text-ink text-sm truncate">{t?.name || "مستخدم"}</p>
@@ -1427,8 +1447,9 @@ function AdminInbox() {
   }
 
   return (
-    <div className="space-y-1.5 overflow-y-auto h-full">
-      {threads === null && <p className="text-sm text-ink-faint flex items-center gap-2 justify-center py-10"><Loader2 className="w-4 h-4 animate-spin" /> جارٍ التحميل…</p>}
+    <div className="h-full min-h-0 overflow-y-auto space-y-1.5">
+      {threads === null && !loadError && <p className="text-sm text-ink-faint flex items-center gap-2 justify-center py-10"><Loader2 className="w-4 h-4 animate-spin" /> جارٍ التحميل…</p>}
+      {loadError && <p className="text-sm text-danger text-center py-10 px-6">تعذر تحميل الرسائل — تحقق من الاتصال، أو أوقف أي مانع إعلانات مؤقتاً.</p>}
       {threads?.length === 0 && <p className="text-sm text-ink-faint text-center py-10">لا توجد محادثات بعد.</p>}
       {threads?.map((t) => (
         <button key={t.id} onClick={() => setOpenUid(t.id)} className="w-full flex items-center gap-3 rounded-2xl bg-card border border-line p-3.5 text-right hover:border-ink-faint transition-colors">
@@ -2054,7 +2075,6 @@ export default function TrainingLog() {
   const [isOnline, setIsOnline] = useState(typeof navigator === "undefined" ? true : navigator.onLine);
   const [theme, setTheme] = useState("equipment");
   const [adminToolsOpen, setAdminToolsOpen] = useState(false);
-  const [adminInboxOpen, setAdminInboxOpen] = useState(false);
   const fileInputRef = useRef(null);
   const pushTimer = useRef(null);
   const pwa = usePwaInstall();
@@ -2242,9 +2262,9 @@ export default function TrainingLog() {
     return () => unsub();
   }, [firebaseUser]);
 
-  if (!loaded || onboardStep === null) return <div className="w-full min-h-screen bg-paper flex items-center justify-center"><LevelBubble /></div>;
+  if (!loaded || onboardStep === null) return <div className="w-full min-h-dvh bg-paper flex items-center justify-center"><LevelBubble /></div>;
   if (onboardStep !== "done") return <OnboardingFlow step={onboardStep} onGoogle={doOnboardGoogle} onGuest={doOnboardGuest} onEmailAuth={doOnboardEmail} onTutorialDone={afterTutorial} onChoosePlan={chooseFirstPlan} status={syncStatus} error={onboardErrorMsg} />;
-  if (!plan || !day) return <div className="w-full min-h-screen bg-paper flex items-center justify-center"><LevelBubble /></div>;
+  if (!plan || !day) return <div className="w-full min-h-dvh bg-paper flex items-center justify-center"><LevelBubble /></div>;
 
   const focusCount = day.exercises.filter((e) => e.focus).length;
   const levelInfo = LEVELS.find((l) => l.id === plan.level);
@@ -2252,7 +2272,7 @@ export default function TrainingLog() {
   const PAGE_TITLE = { train: "التمرين", community: "المجتمع", chat: "الرسائل", profile: "أنت" };
 
   return (
-    <div className="w-full min-h-screen bg-paper text-ink overflow-x-hidden pb-24">
+    <div className="w-full min-h-dvh bg-paper text-ink overflow-x-hidden pb-24">
       <header className="sticky top-0 z-30 bg-paper/95 backdrop-blur border-b border-line">
         <div className="max-w-2xl mx-auto px-4 sm:px-6 h-14 flex items-center justify-between gap-3">
           <div className="flex items-center gap-2 min-w-0">
@@ -2348,12 +2368,22 @@ export default function TrainingLog() {
 
         {page === "community" && <CommunityPage onFork={forkPlan} isOnline={isOnline} />}
 
-        {page === "chat" && (canEdit ? <ChatPage user={firebaseUser} authorName={authorName} /> : (
+        {page === "chat" && canEdit && (
+          <div
+            className="fixed inset-x-0 z-20 flex flex-col"
+            style={{ top: "3.5rem", bottom: "calc(4.5rem + env(safe-area-inset-bottom))" }}
+          >
+            <div className="max-w-2xl w-full mx-auto px-4 sm:px-6 pt-4 flex-1 min-h-0 flex flex-col">
+              <ChatPage user={firebaseUser} authorName={authorName} isAdminUser={isAdminUser} />
+            </div>
+          </div>
+        )}
+        {page === "chat" && !canEdit && (
           <div className="text-center py-16">
             <p className="text-sm text-ink-faint mb-3">سجّل الدخول للتواصل والحفظ.</p>
             <button onClick={() => setSyncOpen(true)} className="px-5 py-2.5 rounded-xl text-sm font-bold bg-charge text-paper hover:bg-charge-strong transition-colors">تسجيل الدخول</button>
           </div>
-        ))}
+        )}
 
         {page === "profile" && (
           <div className="space-y-6">
@@ -2472,7 +2502,7 @@ export default function TrainingLog() {
       </div>
 
       <nav className="fixed bottom-0 inset-x-0 z-30 bg-card border-t border-line" style={{ paddingBottom: "env(safe-area-inset-bottom)" }}>
-        <div className="grid grid-cols-4 max-w-2xl mx-auto">
+        <div className="grid grid-cols-4 max-w-2xl mx-auto" style={{ height: "4.5rem" }}>
           {[
             { id: "train", label: "التمرين", Icon: Home },
             { id: "community", label: "المجتمع", Icon: Users },
@@ -2496,19 +2526,12 @@ export default function TrainingLog() {
       {manageDaysOpen && <ManageDaysModal days={plan.days} onCancel={() => setManageDaysOpen(false)} onSave={saveDays} />}
       {syncOpen && <ProfileModal user={firebaseUser} authorName={authorName} onCancel={() => setSyncOpen(false)} onSignIn={doSignIn} onUpgrade={doUpgrade} onSignOut={doSignOut} status={syncStatus} error={syncError} />}
       {shareOpen && <ShareModal plan={shareOpen} user={firebaseUser} authorName={authorName} onCancel={() => setShareOpen(null)} onPatchPlan={(patch) => patchPlan(shareOpen.id, patch)} />}
-      {planSwitcherOpen && <PlanSwitcherSheet plans={plans} activePlanId={activePlanId} levels={LEVELS} onSwitch={(id) => { switchPlan(id); setPlanSwitcherOpen(false); }} onManage={() => { setPlanSwitcherOpen(false); setPage("profile"); }} onCancel={() => setPlanSwitcherOpen(false)} />}
+      {planSwitcherOpen && <PlanSwitcherSheet plans={plans} activePlanId={activePlanId} levels={LEVELS} onSwitch={(id) => { switchPlan(id); setPlanSwitcherOpen(false); }} onNew={() => { setPlanSwitcherOpen(false); setNewPlanOpen(true); }} onManage={() => { setPlanSwitcherOpen(false); setPage("profile"); }} onCancel={() => setPlanSwitcherOpen(false)} />}
       {sessionOpen && day && <WorkoutSession day={day} onExit={() => setSessionOpen(false)} />}
       {needsName && canEdit && <NameModal onSave={saveName} />}
       {adminToolsOpen && (
         <FullScreenSheet title="أدوات المسؤول" onBack={() => setAdminToolsOpen(false)}>
-          <AdminPanel user={firebaseUser} onOpenInbox={() => setAdminInboxOpen(true)} />
-        </FullScreenSheet>
-      )}
-      {adminInboxOpen && (
-        <FullScreenSheet title="صندوق الرسائل" onBack={() => setAdminInboxOpen(false)}>
-          <div style={{ height: "calc(100vh - 3.5rem - env(safe-area-inset-top) - 2rem)" }}>
-            <AdminInbox />
-          </div>
+          <AdminPanel user={firebaseUser} />
         </FullScreenSheet>
       )}
     </div>
