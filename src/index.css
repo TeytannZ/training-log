@@ -1,5 +1,5 @@
 @import "tailwindcss";
-@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700;800&family=IBM+Plex+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@500;600;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700;800&family=IBM+Plex+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@500;600;700&family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&display=swap');
 
 /*
   Training Log — design tokens (v2)
@@ -71,6 +71,93 @@
   --font-display: "Space Grotesk", ui-sans-serif, system-ui, sans-serif;
   --font-body: "IBM Plex Sans", ui-sans-serif, system-ui, sans-serif;
   --font-mono: "JetBrains Mono", ui-monospace, monospace;
+}
+
+/*
+  ------------------------------------------------------------------
+  THEMES
+  ------------------------------------------------------------------
+  The block above (@theme) is "Equipment Room", the default. Every
+  other theme below overrides the exact same custom-property names
+  scoped to [data-theme="..."] on <html> — since every existing
+  utility class (bg-charge, text-ink, rounded-2xl, font-display...)
+  already reads its value from these variables at paint time, no
+  component markup has to change to support a new theme. Each theme
+  changes more than color: fonts, corner radius, and card treatment
+  all shift too, so switching actually feels like a different app,
+  not a different coat of paint on the same one.
+
+  Plate colors (--color-w1..w5) are deliberately NOT overridden by
+  any theme — they're a real-world standard (bumper-plate colors),
+  not a design choice, so "how heavy" stays legible no matter which
+  theme is active.
+*/
+
+/* ---- Studio — light, editorial, quiet. Paper-white surfaces, a
+   serif display face for headings, sharp-ish corners, hairline
+   borders instead of shadows or heavy fills. ---- */
+[data-theme="studio"] {
+  --color-ink: #221f1a;
+  --color-ink-soft: #5c574c;
+  --color-ink-faint: #928c7c;
+
+  --color-paper: #faf7f0;
+  --color-card: #ffffff;
+  --color-line: #e4ddcc;
+  --color-mist: #f1ece0;
+
+  --color-charge: #9c5a1f;
+  --color-charge-strong: #7a4416;
+  --color-charge-soft: rgba(156, 90, 31, 0.10);
+
+  --color-danger: #b23b31;
+  --color-danger-soft: rgba(178, 59, 49, 0.10);
+
+  --font-display: "Fraunces", ui-serif, Georgia, serif;
+  --font-body: "IBM Plex Sans", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, monospace;
+
+  --radius-2xl: 0.625rem;
+  --radius-xl: 0.5rem;
+  --radius-lg: 0.4rem;
+  --radius-md: 0.3rem;
+  --radius-sm: 0.2rem;
+
+  color-scheme: light;
+}
+
+/* ---- Arcade — near-black, high-contrast, a scoreboard/competition
+   feel. Electric green accent, squared-off corners, monospace for
+   headings so numbers read like a timer. ---- */
+[data-theme="arcade"] {
+  --color-ink: #eef7ee;
+  --color-ink-soft: #9db89d;
+  --color-ink-faint: #607862;
+
+  --color-paper: #060a06;
+  --color-card: #0e140e;
+  --color-line: #1e2b1e;
+  --color-mist: #131b13;
+
+  --color-charge: #5ee85e;
+  --color-charge-strong: #3fc23f;
+  --color-charge-soft: rgba(94, 232, 94, 0.14);
+
+  --color-danger: #ff5252;
+  --color-danger-soft: rgba(255, 82, 82, 0.14);
+
+  --font-display: "JetBrains Mono", ui-monospace, monospace;
+  --font-body: "IBM Plex Sans", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, monospace;
+
+  --radius-2xl: 0.25rem;
+  --radius-xl: 0.2rem;
+  --radius-lg: 0.15rem;
+  --radius-md: 0.125rem;
+  --radius-sm: 0.0625rem;
+  --radius-full: 0.25rem; /* even "pill" shapes go square-ish here */
+
+  color-scheme: dark;
 }
 
 html {
