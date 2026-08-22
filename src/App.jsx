@@ -269,6 +269,23 @@ async function saveUserData(uid, name, data) {
 async function saveProfileInfo(uid, firstName, familyName, email) {
   await setDoc(doc(dbase, "users", uid), { firstName, familyName, email, lastActive: serverTimestamp() }, { merge: true });
 }
+async function saveThemePreference(uid, theme) {
+  try { await setDoc(doc(dbase, "users", uid), { theme }, { merge: true }); } catch (err) { /* best-effort */ }
+}
+
+// ---- Themes ----
+// Each theme is a full CSS variable set (colors, fonts, radius) scoped
+// to [data-theme="id"] in index.css — see the THEMES block there. This
+// list only drives the picker UI and validates a stored/loaded value.
+const THEMES = [
+  { id: "equipment", name: "غرفة المعدات", desc: "داكن، نحاسي، الافتراضي" },
+  { id: "studio", name: "استوديو", desc: "فاتح، هادئ، أنيق" },
+  { id: "arcade", name: "أركيد", desc: "تباين عالٍ، أخضر نيون" },
+];
+const THEME_KEY = "training-log-theme";
+function applyTheme(id) {
+  if (typeof document !== "undefined") document.documentElement.dataset.theme = id;
+}
 
 // ---- Admins ----
 // There's no backend here (no Cloud Functions), so admin status can't be a
@@ -363,62 +380,41 @@ async function adminDeleteSharedPlan(planId) {
   await deleteDoc(doc(dbase, "sharedPlans", planId));
 }
 
-// ---- Messages (contact / feedback — works like a normal chat: text,
-// an optional photo, and an optional link for anything too big to
-// attach directly, like a video) ----
-// One collection, each doc a single message + at most one reply.
-async function sendMessage(uid, name, body, image, link, planContext) {
-  await addDoc(collection(dbase, "messages"), {
-    fromUid: uid, fromName: name, body, image: image || null, link: link || null,
-    planId: planContext?.id || null, planName: planContext?.name || null,
-    status: "open", reply: null, createdAt: serverTimestamp(), repliedAt: null,
-    seenByAdmin: false, seenByUser: true,
+// ---- Chat (contact / feedback — a real back-and-forth thread with
+// the admin, not a one-shot form) ----
+// One thread per user: threads/{uid} holds lightweight metadata (last
+// message preview, unread flags for the nav badge), threads/{uid}/messages
+// holds every message either side has sent, oldest first. Messages are
+// never edited or deleted once sent — this is a chat log, not a form.
+async function sendThreadMessage(uid, from, name, body, image, link) {
+  await addDoc(collection(dbase, "threads", uid, "messages"), {
+    from, body: body || "", image: image || null, link: link || null, createdAt: serverTimestamp(),
   });
+  const preview = body?.trim() ? body.trim().slice(0, 120) : (image ? "📷 صورة" : "🔗 رابط");
+  await setDoc(doc(dbase, "threads", uid), {
+    uid, lastMessage: preview, lastFrom: from, updatedAt: serverTimestamp(),
+    ...(from === "user" ? { name: name || null, unreadForAdmin: true } : { unreadForUser: true }),
+  }, { merge: true });
 }
-// Realtime — the list updates itself the moment a reply lands, no
-// refresh needed, same as any normal chat app.
-function subscribeMyMessages(uid, cb) {
-  const q = query(collection(dbase, "messages"), where("fromUid", "==", uid));
-  return onSnapshot(q, (snap) => {
-    const items = snap.docs.map((d) => ({ id: d.id, ...d.data() })).sort((a, b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0));
+// Realtime — new messages (either side) appear the moment they land.
+function subscribeThreadMessages(uid, cb) {
+  return onSnapshot(collection(dbase, "threads", uid, "messages"), (snap) => {
+    const items = snap.docs.map((d) => ({ id: d.id, ...d.data() })).sort((a, b) => (a.createdAt?.seconds || 0) - (b.createdAt?.seconds || 0));
     cb(items);
   });
 }
-function subscribeAllMessages(cb) {
-  return onSnapshot(collection(dbase, "messages"), (snap) => {
-    const items = snap.docs.map((d) => ({ id: d.id, ...d.data() })).sort((a, b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0));
+function subscribeThread(uid, cb) {
+  return onSnapshot(doc(dbase, "threads", uid), (snap) => cb(snap.exists() ? { id: snap.id, ...snap.data() } : null));
+}
+// Admin inbox — every thread, most-recently-active first.
+function subscribeAllThreads(cb) {
+  return onSnapshot(collection(dbase, "threads"), (snap) => {
+    const items = snap.docs.map((d) => ({ id: d.id, ...d.data() })).sort((a, b) => (b.updatedAt?.seconds || 0) - (a.updatedAt?.seconds || 0));
     cb(items);
   });
 }
-async function replyToMessage(id, replyText) {
-  await setDoc(doc(dbase, "messages", id), { reply: replyText, status: "replied", repliedAt: serverTimestamp(), seenByAdmin: true, seenByUser: false }, { merge: true });
-}
-async function clearReply(id) {
-  await setDoc(doc(dbase, "messages", id), { reply: null, status: "open", repliedAt: null, seenByUser: true }, { merge: true });
-}
-async function deleteMessage(id) {
-  await deleteDoc(doc(dbase, "messages", id));
-}
-async function markSeenByAdmin(ids) {
-  await Promise.all(ids.map((id) => setDoc(doc(dbase, "messages", id), { seenByAdmin: true }, { merge: true }).catch(() => {})));
-}
-async function markSeenByUser(ids) {
-  await Promise.all(ids.map((id) => setDoc(doc(dbase, "messages", id), { seenByUser: true }, { merge: true }).catch(() => {})));
-}
-// Free-tier housekeeping: no scheduled Cloud Function (that needs the
-// paid plan), so instead this runs opportunistically whenever the admin
-// opens the inbox and quietly clears out old, already-resolved threads
-// so storage doesn't grow forever. Nothing time-sensitive is ever
-// touched — only replied AND already-seen messages, and only once
-// they're 120+ days old.
-async function cleanupOldMessages() {
-  try {
-    const q = query(collection(dbase, "messages"), where("status", "==", "replied"));
-    const snap = await getDocs(q);
-    const cutoff = Date.now() - 120 * 24 * 3600 * 1000;
-    const stale = snap.docs.filter((d) => { const v = d.data(); return v.seenByUser && v.repliedAt?.seconds && v.repliedAt.seconds * 1000 < cutoff; });
-    await Promise.all(stale.map((d) => deleteDoc(d.ref).catch(() => {})));
-  } catch (err) { /* best-effort, never block the UI on this */ }
+async function markThreadSeen(uid, role) {
+  try { await setDoc(doc(dbase, "threads", uid), role === "admin" ? { unreadForAdmin: false } : { unreadForUser: false }, { merge: true }); } catch (err) { /* best-effort */ }
 }
 
 // ---- Soft rate limiting (message/submission spam) ----
@@ -847,6 +843,23 @@ function NameModal({ onSave }) {
   );
 }
 
+// Generic full-screen sheet — used for admin tools and the admin inbox,
+// so both stay out of the main "You" page and it doesn't turn into an
+// endless scroll of unrelated sections.
+function FullScreenSheet({ title, onBack, children }) {
+  return (
+    <div className="fixed inset-0 z-50 bg-paper flex flex-col">
+      <div className="shrink-0 sticky top-0 bg-paper/95 backdrop-blur border-b border-line flex items-center gap-2 px-4" style={{ height: "3.5rem", paddingTop: "env(safe-area-inset-top)" }}>
+        <button onClick={onBack} className="p-2 -mr-1 rounded-full text-ink-faint hover:bg-mist shrink-0" aria-label="رجوع"><ChevronRight className="w-5 h-5" /></button>
+        <h1 className="font-black text-ink font-display truncate">{title}</h1>
+      </div>
+      <div className="flex-1 overflow-y-auto px-4 py-4 max-w-2xl w-full mx-auto" style={{ paddingBottom: "env(safe-area-inset-bottom)" }}>
+        {children}
+      </div>
+    </div>
+  );
+}
+
 function ProfileModal({ user, authorName, onCancel, onSignIn, onUpgrade, onSignOut, status, error }) {
   const anon = user && user.isAnonymous;
   return (
@@ -1151,26 +1164,15 @@ function ExerciseLibraryAdmin() {
   );
 }
 
-function AdminPanel({ user }) {
+function AdminPanel({ user, onOpenInbox }) {
   const [pending, setPending] = useState(null);
   const [live, setLive] = useState(null);
-  const [messages, setMessages] = useState(null);
-  const [replyDrafts, setReplyDrafts] = useState({});
   const [busyId, setBusyId] = useState(null);
   const [copied, setCopied] = useState(false);
 
   const loadPending = async () => { setPending(null); try { setPending(await fetchPendingSubmissions()); } catch (err) { setPending([]); } };
   const loadLive = async () => { setLive(null); try { setLive(await fetchLiveCommunityPlansForAdmin()); } catch (err) { setLive([]); } };
-  useEffect(() => {
-    loadPending(); loadLive();
-    cleanupOldMessages(); // best-effort housekeeping, runs quietly
-    const unsub = subscribeAllMessages((items) => {
-      setMessages(items);
-      const unseen = items.filter((m) => !m.seenByAdmin).map((m) => m.id);
-      if (unseen.length) markSeenByAdmin(unseen);
-    });
-    return () => unsub();
-  }, []);
+  useEffect(() => { loadPending(); loadLive(); }, []);
 
   const approve = async (id) => { setBusyId(id); try { await adminSetApproved(id, true); } catch (err) { /* ignore */ } await Promise.all([loadPending(), loadLive()]); setBusyId(null); };
   const reject = async (id) => { setBusyId(id); try { await adminDeleteSharedPlan(id); } catch (err) { /* ignore */ } await loadPending(); setBusyId(null); };
@@ -1178,15 +1180,6 @@ function AdminPanel({ user }) {
   const remove = async (id) => { setBusyId(id); try { await adminDeleteSharedPlan(id); } catch (err) { /* ignore */ } await loadLive(); setBusyId(null); };
   const toggleRecommend = async (p) => { setBusyId(p.id); try { await adminSetRecommended(p.id, !p.recommended); } catch (err) { /* ignore */ } await loadLive(); setBusyId(null); };
   const clearAnnounced = async (id) => { setBusyId(id); try { await adminClearAnnounced(id); } catch (err) { /* ignore */ } await loadLive(); setBusyId(null); };
-  const sendReply = async (id) => {
-    const text = (replyDrafts[id] || "").trim();
-    if (!text) return;
-    setBusyId(id);
-    try { await replyToMessage(id, text); } catch (err) { /* ignore */ }
-    setBusyId(null);
-  };
-  const retractReply = async (id) => { setBusyId(id); try { await clearReply(id); } catch (err) { /* ignore */ } setBusyId(null); };
-  const removeMessage = async (id) => { setBusyId(id); try { await deleteMessage(id); } catch (err) { /* ignore */ } setBusyId(null); };
   const copyUid = () => { navigator.clipboard?.writeText(user.uid).then(() => { setCopied(true); setTimeout(() => setCopied(false), 1500); }); };
 
   return (
@@ -1243,29 +1236,10 @@ function AdminPanel({ user }) {
         </div>
       </div>
 
-      <div className="rounded-2xl border border-line bg-card p-4">
-        <p className="text-xs font-bold text-ink-faint uppercase tracking-wide mb-3">الرسائل</p>
-        {messages === null && <p className="text-sm text-ink-faint flex items-center gap-2"><Loader2 className="w-4 h-4 animate-spin" /> جارٍ التحميل…</p>}
-        {messages?.length === 0 && <p className="text-sm text-ink-faint">لا توجد رسائل.</p>}
-        <div className="space-y-3">
-          {messages?.map((m) => (
-            <div key={m.id} className="rounded-xl bg-mist p-3">
-              <div className="flex items-start justify-between gap-2 mb-1">
-                <p className="text-xs text-ink-faint">{m.fromName || "مجهول"}{m.planName ? ` · بخصوص "${m.planName}"` : ""}{m.status === "open" ? " · بانتظار الرد" : ""}</p>
-                <button disabled={busyId === m.id} onClick={() => removeMessage(m.id)} className="shrink-0 text-ink-faint hover:text-danger" aria-label="حذف المحادثة"><Trash2 className="w-3.5 h-3.5" /></button>
-              </div>
-              <p className="text-sm text-ink mb-2">{m.body}</p>
-              {m.image && <img src={m.image} alt="" className="w-24 h-24 rounded-lg object-cover mb-2" />}
-              {m.link && <a href={m.link} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-xs font-bold text-charge mb-2"><Send className="w-3 h-3" /> رابط مرفق</a>}
-              <div className="flex gap-2">
-                <input value={replyDrafts[m.id] ?? m.reply ?? ""} onChange={(e) => setReplyDrafts((d) => ({ ...d, [m.id]: e.target.value }))} placeholder="اكتب رداً…" className="flex-1 rounded-lg border border-line bg-card px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-charge" />
-                <button disabled={busyId === m.id} onClick={() => sendReply(m.id)} className="px-3 py-2 rounded-lg text-sm font-bold bg-charge text-paper disabled:opacity-40">{m.reply ? "تحديث" : "إرسال"}</button>
-                {m.reply && <button disabled={busyId === m.id} onClick={() => retractReply(m.id)} className="px-3 py-2 rounded-lg text-sm font-bold bg-danger-soft text-danger disabled:opacity-40">حذف الرد</button>}
-              </div>
-            </div>
-          ))}
-        </div>
-      </div>
+      <button onClick={onOpenInbox} className="w-full flex items-center justify-between gap-2 bg-card border border-line rounded-2xl px-4 py-3.5 hover:border-ink-faint transition-colors">
+        <span className="font-bold text-ink text-sm">صندوق الرسائل</span>
+        <ChevronRight className="w-4 h-4 text-ink-faint rotate-180" />
+      </button>
     </section>
   );
 }
@@ -1310,72 +1284,163 @@ function CommunityPage({ onFork, isOnline }) {
   );
 }
 
-function ContactPanel({ user, authorName }) {
+// ---- Chat — a real WhatsApp/Telegram-style thread, shared between
+// the user-facing "Chat" tab and the admin inbox. `viewerRole` is
+// "user" or "admin"; `threadUid` is whose thread this is (always the
+// user's uid, even when the admin is the one viewing it). ----
+function ChatBubble({ msg, mine }) {
+  return (
+    <div dir="ltr" className="flex" style={{ justifyContent: mine ? "flex-end" : "flex-start" }}>
+      <div
+        dir="rtl"
+        className={`max-w-[78%] rounded-2xl px-3.5 py-2.5 text-sm leading-relaxed ${
+          mine ? "bg-charge text-paper rounded-br-md" : "bg-card border border-line text-ink rounded-bl-md"
+        }`}
+      >
+        {msg.image && <img src={msg.image} alt="" className="w-40 h-40 rounded-xl object-cover mb-1.5" />}
+        {msg.body && <p className="whitespace-pre-wrap break-words">{msg.body}</p>}
+        {msg.link && (
+          <a href={msg.link} target="_blank" rel="noopener noreferrer" className={`inline-flex items-center gap-1 text-xs font-bold mt-1 ${mine ? "text-paper/90 underline" : "text-charge"}`}>
+            <Send className="w-3 h-3" /> رابط مرفق
+          </a>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function ChatThread({ threadUid, viewerRole, peerName, rateLimitUid }) {
+  const [messages, setMessages] = useState(null);
   const [body, setBody] = useState("");
   const [image, setImage] = useState(null);
   const [link, setLink] = useState("");
+  const [linkOpen, setLinkOpen] = useState(false);
   const [state, setState] = useState("idle");
-  const [mine, setMine] = useState(null);
   const fileRef = useRef(null);
+  const bottomRef = useRef(null);
 
   useEffect(() => {
-    const unsub = subscribeMyMessages(user.uid, (items) => {
-      setMine(items);
-      const unseen = items.filter((m) => m.reply && !m.seenByUser).map((m) => m.id);
-      if (unseen.length) markSeenByUser(unseen);
-    });
+    setMessages(null);
+    const unsub = subscribeThreadMessages(threadUid, setMessages);
+    markThreadSeen(threadUid, viewerRole);
     return () => unsub();
-  }, [user.uid]);
+  }, [threadUid, viewerRole]);
+
+  useEffect(() => {
+    if (messages?.length) markThreadSeen(threadUid, viewerRole);
+    bottomRef.current?.scrollIntoView({ block: "end" });
+  }, [messages, threadUid, viewerRole]);
 
   const send = async () => {
     if (!body.trim() && !image) return;
     setState("sending");
     try {
-      const ok = await checkAndBumpRateLimit(user.uid, "messages", 5, 15 * 60 * 1000);
-      if (!ok) { setState("limited"); return; }
-      await sendMessage(user.uid, authorName, body.trim(), image, link.trim() || null, null);
-      setBody(""); setImage(null); setLink(""); setState("idle");
+      if (viewerRole === "user") {
+        const ok = await checkAndBumpRateLimit(rateLimitUid, "messages", 20, 15 * 60 * 1000);
+        if (!ok) { setState("limited"); return; }
+      }
+      await sendThreadMessage(threadUid, viewerRole, peerName, body.trim(), image, link.trim() || null);
+      setBody(""); setImage(null); setLink(""); setLinkOpen(false); setState("idle");
     } catch (err) { setState("error"); }
   };
 
   return (
-    <section>
-      <h2 className="text-[11px] font-bold uppercase tracking-[0.14em] text-ink-faint mb-2.5">تواصل معي</h2>
-      <div className="rounded-2xl border border-line bg-card p-4">
-        <p className="text-xs text-ink-faint mb-2">مشكلة في خطة، اقتراح، أي شيء — أرسل رسالة وسأرد عليك هنا. يمكنك إرفاق صورة أو رابط.</p>
-        <textarea value={body} onChange={(e) => setBody(e.target.value)} rows={3} placeholder="اكتب رسالتك…" className={inputClass + " resize-none mb-2"} />
+    <div className="flex flex-col h-full">
+      <div className="flex-1 overflow-y-auto px-1 py-3 space-y-2.5">
+        {messages === null && <p className="text-sm text-ink-faint flex items-center gap-2 justify-center py-10"><Loader2 className="w-4 h-4 animate-spin" /> جارٍ التحميل…</p>}
+        {messages?.length === 0 && (
+          <p className="text-sm text-ink-faint text-center py-10 px-6">
+            {viewerRole === "user" ? "مشكلة في خطة، اقتراح، أي شيء — ابدأ المحادثة." : "لا رسائل بعد في هذه المحادثة."}
+          </p>
+        )}
+        {messages?.map((m) => <ChatBubble key={m.id} msg={m} mine={m.from === viewerRole} />)}
+        <div ref={bottomRef} />
+      </div>
+
+      <div className="shrink-0 border-t border-line pt-2.5">
         {image && (
-          <div className="relative w-20 h-20 mb-2">
-            <img src={image} alt="" className="w-20 h-20 rounded-xl object-cover" />
+          <div className="relative w-16 h-16 mb-2">
+            <img src={image} alt="" className="w-16 h-16 rounded-xl object-cover" />
             <button onClick={() => setImage(null)} className="absolute -top-1.5 -left-1.5 w-5 h-5 rounded-full bg-danger text-white flex items-center justify-center"><X className="w-3 h-3" /></button>
           </div>
         )}
-        <input value={link} onChange={(e) => setLink(e.target.value)} placeholder="رابط فيديو أو ملف (اختياري)" className={inputClass + " mb-2 text-sm"} />
-        <div className="flex gap-2">
-          <button onClick={() => fileRef.current?.click()} className="p-2.5 rounded-xl bg-mist text-ink-soft hover:text-ink shrink-0" aria-label="إرفاق صورة"><Camera className="w-4 h-4" /></button>
-          <button disabled={state === "sending" || (!body.trim() && !image)} onClick={send} className="flex-1 py-2.5 rounded-xl text-sm font-bold bg-charge text-paper disabled:opacity-30 hover:bg-charge-strong transition-colors">
-            {state === "sending" ? "جارٍ الإرسال…" : "إرسال"}
+        {linkOpen && (
+          <input value={link} onChange={(e) => setLink(e.target.value)} placeholder="رابط فيديو أو ملف" className={inputClass + " mb-2 text-sm py-2"} autoFocus />
+        )}
+        <div className="flex items-end gap-2">
+          <button onClick={() => fileRef.current?.click()} className="p-2.5 rounded-full bg-mist text-ink-soft hover:text-ink shrink-0" aria-label="إرفاق صورة"><Camera className="w-4 h-4" /></button>
+          <button onClick={() => setLinkOpen((v) => !v)} className={`p-2.5 rounded-full shrink-0 ${linkOpen ? "bg-charge-soft text-charge" : "bg-mist text-ink-soft hover:text-ink"}`} aria-label="إرفاق رابط"><Share className="w-4 h-4" /></button>
+          <textarea
+            value={body}
+            onChange={(e) => setBody(e.target.value)}
+            rows={1}
+            placeholder="اكتب رسالة…"
+            className={inputClass + " resize-none py-2.5 flex-1"}
+            onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); } }}
+          />
+          <button disabled={state === "sending" || (!body.trim() && !image)} onClick={send} className="p-3 rounded-full bg-charge text-paper disabled:opacity-30 hover:bg-charge-strong transition-colors shrink-0" aria-label="إرسال">
+            {state === "sending" ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
           </button>
         </div>
         <input ref={fileRef} type="file" accept="image/*" className="hidden" onChange={async (e) => { const f = e.target.files?.[0]; if (!f) return; try { setImage(await resizeImage(f, 600)); } catch (err) { /* ignore */ } e.target.value = ""; }} />
-        {state === "error" && <p className="text-xs text-danger mt-2">حدث خطأ ما — حاول مرة أخرى.</p>}
-        {state === "limited" && <p className="text-xs text-danger mt-2">رسائل كثيرة خلال وقت قصير — حاول مرة أخرى بعد قليل.</p>}
+        {state === "error" && <p className="text-xs text-danger mt-1.5">حدث خطأ ما — حاول مرة أخرى.</p>}
+        {state === "limited" && <p className="text-xs text-danger mt-1.5">رسائل كثيرة خلال وقت قصير — حاول مرة أخرى بعد قليل.</p>}
       </div>
-      {mine && mine.length > 0 && (
-        <div className="space-y-2 mt-2">
-          {mine.map((m) => (
-            <div key={m.id} className="rounded-xl bg-mist p-3">
-              <p className="text-sm text-ink mb-1.5">{m.body}</p>
-              {m.image && <img src={m.image} alt="" className="w-24 h-24 rounded-lg object-cover mb-1.5" />}
-              {m.link && <a href={m.link} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-xs font-bold text-charge mb-1.5"><Send className="w-3 h-3" /> رابط مرفق</a>}
-              {m.reply
-                ? <div className="rounded-lg bg-card border border-charge/20 p-2.5 text-sm text-ink-soft"><span className="font-bold text-charge">الرد: </span>{m.reply}</div>
-                : <p className="text-xs text-ink-faint">بانتظار الرد…</p>}
-            </div>
-          ))}
+    </div>
+  );
+}
+
+// The user-facing "Chat" tab — just their own thread with the admin.
+function ChatPage({ user, authorName }) {
+  return (
+    <div className="flex flex-col" style={{ height: "calc(100vh - 3.5rem - 4.75rem - env(safe-area-inset-bottom))" }}>
+      <div className="shrink-0 flex items-center gap-2.5 pb-3 border-b border-line">
+        <div className="w-9 h-9 rounded-full bg-charge-soft text-charge flex items-center justify-center font-black shrink-0">؟</div>
+        <div className="min-w-0">
+          <p className="font-black text-ink text-sm">الدعم</p>
+          <p className="text-xs text-ink-faint">عادة ما يرد خلال يوم</p>
         </div>
-      )}
-    </section>
+      </div>
+      <ChatThread threadUid={user.uid} viewerRole="user" peerName={authorName} rateLimitUid={user.uid} />
+    </div>
+  );
+}
+
+// Admin inbox — list of every thread, tap in to reply. Rendered inside
+// a full-screen sheet from the profile page's admin tools.
+function AdminInbox() {
+  const [threads, setThreads] = useState(null);
+  const [openUid, setOpenUid] = useState(null);
+  useEffect(() => { const unsub = subscribeAllThreads(setThreads); return () => unsub(); }, []);
+
+  if (openUid) {
+    const t = threads?.find((x) => x.id === openUid);
+    return (
+      <div className="flex flex-col h-full">
+        <div className="shrink-0 flex items-center gap-2 pb-3 border-b border-line">
+          <button onClick={() => setOpenUid(null)} className="p-2 -mr-1 rounded-full text-ink-faint hover:bg-mist shrink-0" aria-label="رجوع"><ChevronRight className="w-4 h-4" /></button>
+          <p className="font-black text-ink text-sm truncate">{t?.name || "مستخدم"}</p>
+        </div>
+        <ChatThread threadUid={openUid} viewerRole="admin" peerName={null} />
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-1.5 overflow-y-auto h-full">
+      {threads === null && <p className="text-sm text-ink-faint flex items-center gap-2 justify-center py-10"><Loader2 className="w-4 h-4 animate-spin" /> جارٍ التحميل…</p>}
+      {threads?.length === 0 && <p className="text-sm text-ink-faint text-center py-10">لا توجد محادثات بعد.</p>}
+      {threads?.map((t) => (
+        <button key={t.id} onClick={() => setOpenUid(t.id)} className="w-full flex items-center gap-3 rounded-2xl bg-card border border-line p-3.5 text-right hover:border-ink-faint transition-colors">
+          <div className="w-9 h-9 rounded-full bg-mist text-ink-faint flex items-center justify-center font-black shrink-0">{(t.name || "؟")[0]}</div>
+          <div className="min-w-0 flex-1">
+            <p className="font-bold text-sm text-ink truncate">{t.name || "مستخدم"}</p>
+            <p className={`text-xs truncate ${t.unreadForAdmin ? "text-ink font-bold" : "text-ink-faint"}`}>{t.lastFrom === "admin" ? "أنت: " : ""}{t.lastMessage || ""}</p>
+          </div>
+          {t.unreadForAdmin && <span className="shrink-0 w-2.5 h-2.5 rounded-full bg-charge" />}
+        </button>
+      ))}
+    </div>
   );
 }
 
@@ -1953,9 +2018,9 @@ export default function TrainingLog() {
   const [activeDay, setActiveDay] = useState(null);
   const pageFromUrl = () => {
     const p = window.location.hash.replace("#", "");
-    return ["train", "community", "profile"].includes(p) ? p : "train";
+    return ["train", "community", "chat", "profile"].includes(p) ? p : "train";
   };
-  const [page, setPageState] = useState(pageFromUrl); // train | community | profile
+  const [page, setPageState] = useState(pageFromUrl); // train | community | chat | profile
   const setPage = (id) => {
     if (id === page) return;
     window.history.pushState({ page: id }, "", `#${id}`);
@@ -1987,6 +2052,9 @@ export default function TrainingLog() {
   const [unreadCount, setUnreadCount] = useState(0);
   const [syncError, setSyncError] = useState(false);
   const [isOnline, setIsOnline] = useState(typeof navigator === "undefined" ? true : navigator.onLine);
+  const [theme, setTheme] = useState("equipment");
+  const [adminToolsOpen, setAdminToolsOpen] = useState(false);
+  const [adminInboxOpen, setAdminInboxOpen] = useState(false);
   const fileInputRef = useRef(null);
   const pushTimer = useRef(null);
   const pwa = usePwaInstall();
@@ -2023,6 +2091,7 @@ export default function TrainingLog() {
       if (localPlans) { setPlans(localPlans); const aid = localActiveId || localPlans[0].id; setActivePlanId(aid); setActiveDay(localPlans.find((p) => p.id === aid)?.days[0]?.id); }
       try { const ob = await window.storage.get(ONBOARD_KEY, false); setOnboardStep(ob?.value ? "done" : "language"); } catch (err) { setOnboardStep("language"); }
       try { mergeRemoteLibrary(await fetchExerciseLibrary()); } catch (err) { /* offline or none yet — the hardcoded seed still works fine */ }
+      try { const t = await window.storage.get(THEME_KEY, false); if (t?.value && THEMES.some((th) => th.id === t.value)) { setTheme(t.value); applyTheme(t.value); } } catch (err) { /* default theme */ }
       setLoaded(true);
     })();
 
@@ -2038,6 +2107,7 @@ export default function TrainingLog() {
           }
           if (remote?.firstName) setProfileName(`${remote.firstName} ${remote.familyName || ""}`.trim());
           if (!remote?.firstName) setNeedsName(true);
+          if (remote?.theme && THEMES.some((th) => th.id === remote.theme)) { setTheme(remote.theme); applyTheme(remote.theme); }
         } catch (err) { /* fall back to local */ }
       }
       setRemoteChecked(true);
@@ -2153,15 +2223,22 @@ export default function TrainingLog() {
   };
   const authorName = profileName || firebaseUser?.displayName || "";
 
-  // Unread-message badge for the bottom nav — realtime, live-updates
-  // without needing to open the You/Admin page first.
+  const changeTheme = (id) => {
+    setTheme(id);
+    applyTheme(id);
+    window.storage.set(THEME_KEY, id, false).catch(() => {});
+    if (canEdit) saveThemePreference(firebaseUser.uid, id);
+  };
+
+  // Unread-message badge for the Chat nav tab — realtime, live-updates
+  // without needing to open the tab first.
   useEffect(() => {
     if (!firebaseUser || firebaseUser.isAnonymous) { setUnreadCount(0); return; }
     if (isAdmin(firebaseUser)) {
-      const unsub = subscribeAllMessages((items) => setUnreadCount(items.filter((m) => !m.seenByAdmin).length));
+      const unsub = subscribeAllThreads((items) => setUnreadCount(items.filter((t) => t.unreadForAdmin).length));
       return () => unsub();
     }
-    const unsub = subscribeMyMessages(firebaseUser.uid, (items) => setUnreadCount(items.filter((m) => m.reply && !m.seenByUser).length));
+    const unsub = subscribeThread(firebaseUser.uid, (t) => setUnreadCount(t?.unreadForUser ? 1 : 0));
     return () => unsub();
   }, [firebaseUser]);
 
@@ -2172,7 +2249,7 @@ export default function TrainingLog() {
   const focusCount = day.exercises.filter((e) => e.focus).length;
   const levelInfo = LEVELS.find((l) => l.id === plan.level);
   const weeksIn = Math.floor((Date.now() - new Date(plan.blockStartDate).getTime()) / (7 * 24 * 3600 * 1000));
-  const PAGE_TITLE = { train: "التمرين", community: "المجتمع", profile: "أنت" };
+  const PAGE_TITLE = { train: "التمرين", community: "المجتمع", chat: "الرسائل", profile: "أنت" };
 
   return (
     <div className="w-full min-h-screen bg-paper text-ink overflow-x-hidden pb-24">
@@ -2271,15 +2348,48 @@ export default function TrainingLog() {
 
         {page === "community" && <CommunityPage onFork={forkPlan} isOnline={isOnline} />}
 
+        {page === "chat" && (canEdit ? <ChatPage user={firebaseUser} authorName={authorName} /> : (
+          <div className="text-center py-16">
+            <p className="text-sm text-ink-faint mb-3">سجّل الدخول للتواصل والحفظ.</p>
+            <button onClick={() => setSyncOpen(true)} className="px-5 py-2.5 rounded-xl text-sm font-bold bg-charge text-paper hover:bg-charge-strong transition-colors">تسجيل الدخول</button>
+          </div>
+        ))}
+
         {page === "profile" && (
           <div className="space-y-6">
             <h1 className="text-3xl font-black tracking-tight text-ink font-display text-right">أنت</h1>
 
             <section>
-              <button onClick={() => isOnline && setSyncOpen(true)} disabled={!isOnline} className="w-full flex items-center justify-between gap-2 bg-card border border-line rounded-2xl px-4 py-3.5 disabled:opacity-40 hover:border-ink-faint transition-colors">
-                <span className="flex items-center gap-2.5"><Cloud className={`w-5 h-5 ${canEdit ? "text-charge" : "text-w2"}`} /><span className="font-bold text-ink text-base">{canEdit ? authorName : "تجربة فقط — سجّل الدخول للحفظ"}</span></span>
-                <ChevronRight className="w-4 h-4 text-ink-faint rotate-180" />
+              <button onClick={() => isOnline && setSyncOpen(true)} disabled={!isOnline} className="w-full flex items-center gap-3.5 bg-card border border-line rounded-2xl px-4 py-4 disabled:opacity-40 hover:border-ink-faint transition-colors">
+                <span className={`w-12 h-12 rounded-full flex items-center justify-center font-black text-lg shrink-0 ${canEdit ? "bg-charge-soft text-charge" : "bg-w2-soft text-w2-strong"}`}>
+                  {canEdit ? (authorName || "؟")[0] : "؟"}
+                </span>
+                <span className="flex-1 min-w-0 text-right">
+                  <span className="font-bold text-ink text-base block truncate">{canEdit ? authorName : "تجربة فقط"}</span>
+                  <span className="text-xs text-ink-faint flex items-center gap-1 justify-end">
+                    <Cloud className={`w-3.5 h-3.5 ${canEdit ? "text-charge" : "text-w2"}`} />
+                    {canEdit ? "متزامن" : "سجّل الدخول للحفظ"}
+                  </span>
+                </span>
+                <ChevronRight className="w-4 h-4 text-ink-faint rotate-180 shrink-0" />
               </button>
+            </section>
+
+            <section>
+              <h2 className="text-[11px] font-bold uppercase tracking-[0.14em] text-ink-faint mb-2.5">المظهر</h2>
+              <div className="grid grid-cols-3 gap-2">
+                {THEMES.map((t) => (
+                  <button
+                    key={t.id}
+                    onClick={() => changeTheme(t.id)}
+                    className={`rounded-2xl p-3 text-center border transition-colors ${theme === t.id ? "border-charge bg-charge-soft" : "border-line bg-card hover:border-ink-faint"}`}
+                  >
+                    <span className={`block w-full h-8 rounded-lg mb-2 ${t.id === "equipment" ? "bg-[#100f0d] border border-[#d9a441]" : t.id === "studio" ? "bg-[#faf7f0] border border-[#9c5a1f]" : "bg-[#060a06] border border-[#5ee85e]"}`} />
+                    <span className={`text-xs font-bold block ${theme === t.id ? "text-charge" : "text-ink"}`}>{t.name}</span>
+                    <span className="text-[10px] text-ink-faint block mt-0.5">{t.desc}</span>
+                  </button>
+                ))}
+              </div>
             </section>
 
             <section>
@@ -2322,9 +2432,14 @@ export default function TrainingLog() {
               </div>
             </section>
 
-            {canEdit && <ContactPanel user={firebaseUser} authorName={authorName} />}
-
-            {isAdminUser && <AdminPanel user={firebaseUser} />}
+            {isAdminUser && (
+              <section>
+                <button onClick={() => setAdminToolsOpen(true)} className="w-full flex items-center justify-between gap-2 bg-card border border-line rounded-2xl px-4 py-3.5 hover:border-ink-faint transition-colors">
+                  <span className="font-bold text-ink text-base">أدوات المسؤول</span>
+                  <ChevronRight className="w-4 h-4 text-ink-faint rotate-180" />
+                </button>
+              </section>
+            )}
 
             {!pwa.isStandalone && (
               <section>
@@ -2357,17 +2472,18 @@ export default function TrainingLog() {
       </div>
 
       <nav className="fixed bottom-0 inset-x-0 z-30 bg-card border-t border-line" style={{ paddingBottom: "env(safe-area-inset-bottom)" }}>
-        <div className="grid grid-cols-3 max-w-2xl mx-auto">
+        <div className="grid grid-cols-4 max-w-2xl mx-auto">
           {[
             { id: "train", label: "التمرين", Icon: Home },
             { id: "community", label: "المجتمع", Icon: Users },
+            { id: "chat", label: "الرسائل", Icon: Send },
             { id: "profile", label: "أنت", Icon: User },
           ].map(({ id, label, Icon }) => (
-            <button key={id} onClick={() => setPage(id)} className="relative flex flex-col items-center gap-1 py-2.5 active:opacity-70 transition-opacity">
+            <button key={id} onClick={() => (id === "chat" && !canEdit ? setSyncOpen(true) : setPage(id))} className="relative flex flex-col items-center gap-1 py-2.5 active:opacity-70 transition-opacity">
               {page === id && <span className="absolute top-0 left-1/2 -translate-x-1/2 w-8 h-0.5 rounded-full bg-charge" />}
               <span className="relative">
                 <Icon className={`w-5 h-5 transition-colors ${page === id ? "text-charge" : "text-ink-faint"}`} strokeWidth={2.25} />
-                {id === "profile" && unreadCount > 0 && <span className="absolute -top-1 -left-1 w-2.5 h-2.5 rounded-full bg-danger border-2 border-card" />}
+                {id === "chat" && unreadCount > 0 && <span className="absolute -top-1 -left-1 w-2.5 h-2.5 rounded-full bg-danger border-2 border-card" />}
               </span>
               <span className={`text-[10px] font-bold transition-colors ${page === id ? "text-charge" : "text-ink-faint"}`}>{label}</span>
             </button>
@@ -2383,6 +2499,18 @@ export default function TrainingLog() {
       {planSwitcherOpen && <PlanSwitcherSheet plans={plans} activePlanId={activePlanId} levels={LEVELS} onSwitch={(id) => { switchPlan(id); setPlanSwitcherOpen(false); }} onManage={() => { setPlanSwitcherOpen(false); setPage("profile"); }} onCancel={() => setPlanSwitcherOpen(false)} />}
       {sessionOpen && day && <WorkoutSession day={day} onExit={() => setSessionOpen(false)} />}
       {needsName && canEdit && <NameModal onSave={saveName} />}
+      {adminToolsOpen && (
+        <FullScreenSheet title="أدوات المسؤول" onBack={() => setAdminToolsOpen(false)}>
+          <AdminPanel user={firebaseUser} onOpenInbox={() => setAdminInboxOpen(true)} />
+        </FullScreenSheet>
+      )}
+      {adminInboxOpen && (
+        <FullScreenSheet title="صندوق الرسائل" onBack={() => setAdminInboxOpen(false)}>
+          <div style={{ height: "calc(100vh - 3.5rem - env(safe-area-inset-top) - 2rem)" }}>
+            <AdminInbox />
+          </div>
+        </FullScreenSheet>
+      )}
     </div>
   );
 }
