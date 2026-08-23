@@ -386,9 +386,9 @@ async function adminDeleteSharedPlan(planId) {
 // message preview, unread flags for the nav badge), threads/{uid}/messages
 // holds every message either side has sent, oldest first. Messages are
 // never edited or deleted once sent — this is a chat log, not a form.
-async function sendThreadMessage(uid, from, name, body, image, link) {
+async function sendThreadMessage(uid, from, name, body, image, link, clientId) {
   await addDoc(collection(dbase, "threads", uid, "messages"), {
-    from, body: body || "", image: image || null, link: link || null, createdAt: serverTimestamp(),
+    from, body: body || "", image: image || null, link: link || null, createdAt: serverTimestamp(), clientId: clientId || null,
   });
   const preview = body?.trim() ? body.trim().slice(0, 120) : (image ? "📷 صورة" : "🔗 رابط");
   await setDoc(doc(dbase, "threads", uid), {
@@ -1297,22 +1297,25 @@ function CommunityPage({ onFork, isOnline }) {
 // the user-facing "Chat" tab and the admin inbox. `viewerRole` is
 // "user" or "admin"; `threadUid` is whose thread this is (always the
 // user's uid, even when the admin is the one viewing it). ----
-function ChatBubble({ msg, mine }) {
+function ChatBubble({ msg, mine, status }) {
   return (
-    <div dir="ltr" className="flex" style={{ justifyContent: mine ? "flex-end" : "flex-start" }}>
-      <div
-        dir="rtl"
-        className={`max-w-[78%] rounded-2xl px-3.5 py-2.5 text-sm leading-relaxed ${
-          mine ? "bg-charge text-paper rounded-br-md" : "bg-card border border-line text-ink rounded-bl-md"
-        }`}
-      >
-        {msg.image && <img src={msg.image} alt="" className="w-40 h-40 rounded-xl object-cover mb-1.5" />}
-        {msg.body && <p className="whitespace-pre-wrap break-words">{msg.body}</p>}
-        {msg.link && (
-          <a href={msg.link} target="_blank" rel="noopener noreferrer" className={`inline-flex items-center gap-1 text-xs font-bold mt-1 ${mine ? "text-paper/90 underline" : "text-charge"}`}>
-            <Send className="w-3 h-3" /> رابط مرفق
-          </a>
-        )}
+    <div dir="ltr" className="flex tl-bubble-in" style={{ justifyContent: mine ? "flex-end" : "flex-start" }}>
+      <div className="max-w-[78%]">
+        <div
+          dir="rtl"
+          className={`rounded-2xl px-3.5 py-2.5 text-sm leading-relaxed transition-opacity duration-300 ${
+            mine ? "bg-charge text-paper rounded-br-md" : "bg-card border border-line text-ink rounded-bl-md"
+          } ${status === "pending" ? "opacity-55" : "opacity-100"}`}
+        >
+          {msg.image && <img src={msg.image} alt="" className="w-40 h-40 rounded-xl object-cover mb-1.5" />}
+          {msg.body && <p className="whitespace-pre-wrap break-words">{msg.body}</p>}
+          {msg.link && (
+            <a href={msg.link} target="_blank" rel="noopener noreferrer" className={`inline-flex items-center gap-1 text-xs font-bold mt-1 ${mine ? "text-paper/90 underline" : "text-charge"}`}>
+              <Share className="w-3 h-3" /> رابط مرفق
+            </a>
+          )}
+        </div>
+        {status === "error" && <p dir="rtl" className="text-[11px] text-danger mt-1 text-left">تعذّر الإرسال</p>}
       </div>
     </div>
   );
@@ -1321,56 +1324,87 @@ function ChatBubble({ msg, mine }) {
 function ChatThread({ threadUid, viewerRole, peerName, rateLimitUid }) {
   const [messages, setMessages] = useState(null);
   const [loadError, setLoadError] = useState(false);
+  const [pending, setPending] = useState([]); // optimistic, not-yet-synced messages
   const [body, setBody] = useState("");
   const [image, setImage] = useState(null);
   const [link, setLink] = useState("");
   const [linkOpen, setLinkOpen] = useState(false);
-  const [state, setState] = useState("idle");
+  const [limited, setLimited] = useState(false);
   const fileRef = useRef(null);
-  const bottomRef = useRef(null);
+  const listRef = useRef(null);
 
   useEffect(() => {
-    setMessages(null); setLoadError(false);
+    setMessages(null); setLoadError(false); setPending([]);
     const unsub = subscribeThreadMessages(threadUid, (items) => { setMessages(items); setLoadError(false); }, () => setLoadError(true));
     markThreadSeen(threadUid, viewerRole);
     return () => unsub();
   }, [threadUid, viewerRole]);
 
   useEffect(() => {
+    // once a real synced message with a matching clientId shows up, the
+    // optimistic stand-in for it is no longer needed
+    if (!messages) return;
+    setPending((prev) => prev.filter((p) => !messages.some((m) => m.clientId && m.clientId === p.clientId)));
+  }, [messages]);
+
+  useEffect(() => {
     if (messages?.length) markThreadSeen(threadUid, viewerRole);
-    bottomRef.current?.scrollIntoView({ block: "end" });
-  }, [messages, threadUid, viewerRole]);
+    // set scrollTop directly rather than scrollIntoView — scrollIntoView
+    // can nudge the page/visual viewport on mobile in a way that closes
+    // the on-screen keyboard right after sending, which felt like the
+    // app was cutting the person off mid-conversation.
+    if (listRef.current) listRef.current.scrollTop = listRef.current.scrollHeight;
+  }, [messages, pending, threadUid, viewerRole]);
 
   const send = async () => {
     if (!body.trim() && !image) return;
-    setState("sending");
+    const clientId = `c${Date.now()}${Math.random().toString(36).slice(2, 8)}`;
+    const draft = { clientId, from: viewerRole, body: body.trim(), image, link: link.trim() || null, ts: Date.now() };
+    setPending((p) => [...p, { ...draft, status: "pending" }]);
+    setBody(""); setImage(null); setLink(""); setLinkOpen(false); setLimited(false);
     try {
       if (viewerRole === "user") {
         const ok = await checkAndBumpRateLimit(rateLimitUid, "messages", 20, 15 * 60 * 1000);
-        if (!ok) { setState("limited"); return; }
+        if (!ok) { setPending((p) => p.filter((x) => x.clientId !== clientId)); setLimited(true); return; }
       }
-      await sendThreadMessage(threadUid, viewerRole, peerName, body.trim(), image, link.trim() || null);
-      setBody(""); setImage(null); setLink(""); setLinkOpen(false); setState("idle");
-    } catch (err) { setState("error"); }
+      await sendThreadMessage(threadUid, viewerRole, peerName, draft.body, draft.image, draft.link, clientId);
+      // the onSnapshot listener will deliver the real message and the
+      // effect above drops this optimistic copy once it does
+    } catch (err) {
+      setPending((p) => p.map((x) => (x.clientId === clientId ? { ...x, status: "error" } : x)));
+    }
   };
+
+  const retry = (item) => {
+    setPending((p) => p.filter((x) => x.clientId !== item.clientId));
+    setBody(item.body); setImage(item.image); setLink(item.link || "");
+  };
+
+  const combined = [
+    ...(messages || []).map((m) => ({ ...m, status: "sent" })),
+    ...pending,
+  ].sort((a, b) => (a.createdAt?.seconds ? a.createdAt.seconds * 1000 : a.ts || 0) - (b.createdAt?.seconds ? b.createdAt.seconds * 1000 : b.ts || 0));
 
   return (
     <div className="flex flex-col h-full min-h-0">
-      <div className="flex-1 min-h-0 overflow-y-auto px-1 py-3 space-y-2.5">
+      <div ref={listRef} className="flex-1 min-h-0 overflow-y-auto px-1 py-3 space-y-2.5 scroll-smooth">
         {messages === null && !loadError && <p className="text-sm text-ink-faint flex items-center gap-2 justify-center py-10"><Loader2 className="w-4 h-4 animate-spin" /> جارٍ التحميل…</p>}
         {loadError && <p className="text-sm text-danger text-center py-10 px-6">تعذر الاتصال بالمحادثة — تحقق من الاتصال بالإنترنت، أو أوقف أي مانع إعلانات مؤقتاً (يمنع أحياناً اتصال المحادثة الفوري).</p>}
-        {messages?.length === 0 && (
+        {combined.length === 0 && messages !== null && (
           <p className="text-sm text-ink-faint text-center py-10 px-6">
             {viewerRole === "user" ? "مشكلة في خطة، اقتراح، أي شيء — ابدأ المحادثة." : "لا رسائل بعد في هذه المحادثة."}
           </p>
         )}
-        {messages?.map((m) => <ChatBubble key={m.id} msg={m} mine={m.from === viewerRole} />)}
-        <div ref={bottomRef} />
+        {combined.map((m) => (
+          <div key={m.id || m.clientId} onClick={() => m.status === "error" && retry(m)} className={m.status === "error" ? "cursor-pointer" : ""}>
+            <ChatBubble msg={m} mine={m.from === viewerRole} status={m.status} />
+          </div>
+        ))}
       </div>
 
       <div className="shrink-0 border-t border-line pt-2.5">
         {image && (
-          <div className="relative w-16 h-16 mb-2">
+          <div className="relative w-16 h-16 mb-2 tl-bubble-in">
             <img src={image} alt="" className="w-16 h-16 rounded-xl object-cover" />
             <button onClick={() => setImage(null)} className="absolute -top-1.5 -left-1.5 w-5 h-5 rounded-full bg-danger text-white flex items-center justify-center"><X className="w-3 h-3" /></button>
           </div>
@@ -1379,8 +1413,8 @@ function ChatThread({ threadUid, viewerRole, peerName, rateLimitUid }) {
           <input value={link} onChange={(e) => setLink(e.target.value)} placeholder="رابط فيديو أو ملف" className={inputClass + " mb-2 text-sm py-2"} autoFocus />
         )}
         <div className="flex items-end gap-2">
-          <button onClick={() => fileRef.current?.click()} className="p-2.5 rounded-full bg-mist text-ink-soft hover:text-ink shrink-0" aria-label="إرفاق صورة"><Camera className="w-4 h-4" /></button>
-          <button onClick={() => setLinkOpen((v) => !v)} className={`p-2.5 rounded-full shrink-0 ${linkOpen ? "bg-charge-soft text-charge" : "bg-mist text-ink-soft hover:text-ink"}`} aria-label="إرفاق رابط"><Share className="w-4 h-4" /></button>
+          <button onClick={() => fileRef.current?.click()} className="p-2.5 rounded-full bg-mist text-ink-soft hover:text-ink shrink-0 transition-colors" aria-label="إرفاق صورة"><Camera className="w-4 h-4" /></button>
+          <button onClick={() => setLinkOpen((v) => !v)} className={`p-2.5 rounded-full shrink-0 transition-colors ${linkOpen ? "bg-charge-soft text-charge" : "bg-mist text-ink-soft hover:text-ink"}`} aria-label="إرفاق رابط"><Share className="w-4 h-4" /></button>
           <textarea
             value={body}
             onChange={(e) => setBody(e.target.value)}
@@ -1389,13 +1423,15 @@ function ChatThread({ threadUid, viewerRole, peerName, rateLimitUid }) {
             className={inputClass + " resize-none py-2.5 flex-1"}
             onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); } }}
           />
-          <button disabled={state === "sending" || (!body.trim() && !image)} onClick={send} className="p-3 rounded-full bg-charge text-paper disabled:opacity-30 hover:bg-charge-strong transition-colors shrink-0" aria-label="إرسال">
-            {state === "sending" ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
+          {/* Sends fire-and-forget — no spinner blocking the button. The
+             bubble itself shows a subtle "sending" state (see ChatBubble),
+             so the person can keep typing the next message right away. */}
+          <button disabled={!body.trim() && !image} onClick={send} className="p-3 rounded-full bg-charge text-paper disabled:opacity-30 hover:bg-charge-strong active:scale-90 transition-all shrink-0" aria-label="إرسال">
+            <Send className="w-4 h-4" />
           </button>
         </div>
         <input ref={fileRef} type="file" accept="image/*" className="hidden" onChange={async (e) => { const f = e.target.files?.[0]; if (!f) return; try { setImage(await resizeImage(f, 600)); } catch (err) { /* ignore */ } e.target.value = ""; }} />
-        {state === "error" && <p className="text-xs text-danger mt-1.5">تعذّر الإرسال — تحقق من الاتصال وحاول مرة أخرى.</p>}
-        {state === "limited" && <p className="text-xs text-danger mt-1.5">رسائل كثيرة خلال وقت قصير — حاول مرة أخرى بعد قليل.</p>}
+        {limited && <p className="text-xs text-danger mt-1.5">رسائل كثيرة خلال وقت قصير — حاول مرة أخرى بعد قليل.</p>}
       </div>
     </div>
   );
@@ -1424,6 +1460,30 @@ function ChatPage({ user, authorName, isAdminUser }) {
 // Admin's conversation list — every thread that's messaged in, most
 // recently active first, tap in to reply. This IS the Chat tab when
 // signed in as admin (see ChatPage above), not a separate screen.
+const AVATAR_COLORS = ["w1", "w2", "w3", "w4", "w5"];
+// Tailwind can't resolve dynamically-interpolated class names, so this
+// is a literal lookup table rather than building "bg-w${n}-soft" strings.
+const AVATAR_CLASS = {
+  w1: "bg-w1-soft text-w1-strong",
+  w2: "bg-w2-soft text-w2-strong",
+  w3: "bg-w3-soft text-w3-strong",
+  w4: "bg-w4-soft text-w4-strong",
+  w5: "bg-w5-soft text-w5-strong",
+};
+function avatarColorFor(key) {
+  let h = 0;
+  for (let i = 0; i < (key || "").length; i++) h = (h * 31 + key.charCodeAt(i)) >>> 0;
+  return AVATAR_COLORS[h % AVATAR_COLORS.length];
+}
+function timeAgo(seconds) {
+  if (!seconds) return "";
+  const diff = Date.now() / 1000 - seconds;
+  if (diff < 60) return "الآن";
+  if (diff < 3600) return `قبل ${Math.floor(diff / 60)} د`;
+  if (diff < 86400) return `قبل ${Math.floor(diff / 3600)} س`;
+  return `قبل ${Math.floor(diff / 86400)} يوم`;
+}
+
 function AdminInbox() {
   const [threads, setThreads] = useState(null);
   const [loadError, setLoadError] = useState(false);
@@ -1437,8 +1497,9 @@ function AdminInbox() {
     const t = threads?.find((x) => x.id === openUid);
     return (
       <div className="flex flex-col h-full min-h-0">
-        <div className="shrink-0 flex items-center gap-2 pb-3 border-b border-line">
-          <button onClick={() => setOpenUid(null)} className="p-2 -mr-1 rounded-full text-ink-faint hover:bg-mist shrink-0" aria-label="رجوع"><ChevronRight className="w-4 h-4" /></button>
+        <div className="shrink-0 flex items-center gap-2.5 pb-3 border-b border-line">
+          <button onClick={() => setOpenUid(null)} className="p-2 -mr-1 rounded-full text-ink-faint hover:bg-mist active:scale-90 transition-all shrink-0" aria-label="رجوع"><ChevronRight className="w-4 h-4" /></button>
+          <div className={`w-8 h-8 rounded-full flex items-center justify-center font-black text-xs shrink-0 ${AVATAR_CLASS[avatarColorFor(t?.name || openUid)]}`}>{(t?.name || "؟")[0]}</div>
           <p className="font-black text-ink text-sm truncate">{t?.name || "مستخدم"}</p>
         </div>
         <ChatThread threadUid={openUid} viewerRole="admin" peerName={null} />
@@ -1450,17 +1511,30 @@ function AdminInbox() {
     <div className="h-full min-h-0 overflow-y-auto space-y-1.5">
       {threads === null && !loadError && <p className="text-sm text-ink-faint flex items-center gap-2 justify-center py-10"><Loader2 className="w-4 h-4 animate-spin" /> جارٍ التحميل…</p>}
       {loadError && <p className="text-sm text-danger text-center py-10 px-6">تعذر تحميل الرسائل — تحقق من الاتصال، أو أوقف أي مانع إعلانات مؤقتاً.</p>}
-      {threads?.length === 0 && <p className="text-sm text-ink-faint text-center py-10">لا توجد محادثات بعد.</p>}
-      {threads?.map((t) => (
-        <button key={t.id} onClick={() => setOpenUid(t.id)} className="w-full flex items-center gap-3 rounded-2xl bg-card border border-line p-3.5 text-right hover:border-ink-faint transition-colors">
-          <div className="w-9 h-9 rounded-full bg-mist text-ink-faint flex items-center justify-center font-black shrink-0">{(t.name || "؟")[0]}</div>
-          <div className="min-w-0 flex-1">
-            <p className="font-bold text-sm text-ink truncate">{t.name || "مستخدم"}</p>
-            <p className={`text-xs truncate ${t.unreadForAdmin ? "text-ink font-bold" : "text-ink-faint"}`}>{t.lastFrom === "admin" ? "أنت: " : ""}{t.lastMessage || ""}</p>
-          </div>
-          {t.unreadForAdmin && <span className="shrink-0 w-2.5 h-2.5 rounded-full bg-charge" />}
-        </button>
-      ))}
+      {threads?.length === 0 && !loadError && <p className="text-sm text-ink-faint text-center py-10">لا توجد محادثات بعد.</p>}
+      {threads?.map((t, i) => {
+        const color = avatarColorFor(t.name || t.id);
+        return (
+          <button
+            key={t.id}
+            onClick={() => setOpenUid(t.id)}
+            style={{ animationDelay: `${Math.min(i, 8) * 30}ms` }}
+            className={`tl-bubble-in w-full flex items-center gap-3 rounded-2xl p-3.5 text-right transition-all hover:-translate-y-px active:scale-[0.99] ${
+              t.unreadForAdmin ? "bg-charge-soft border border-charge/25" : "bg-card border border-line hover:border-ink-faint"
+            }`}
+          >
+            <div className={`w-10 h-10 rounded-full flex items-center justify-center font-black shrink-0 ${AVATAR_CLASS[color]}`}>{(t.name || "؟")[0]}</div>
+            <div className="min-w-0 flex-1">
+              <div className="flex items-center justify-between gap-2">
+                <p className="font-bold text-sm text-ink truncate">{t.name || "مستخدم"}</p>
+                {t.updatedAt?.seconds && <span className="text-[10px] text-ink-faint shrink-0">{timeAgo(t.updatedAt.seconds)}</span>}
+              </div>
+              <p className={`text-xs truncate ${t.unreadForAdmin ? "text-ink font-bold" : "text-ink-faint"}`}>{t.lastFrom === "admin" ? "أنت: " : ""}{t.lastMessage || ""}</p>
+            </div>
+            {t.unreadForAdmin && <span className="shrink-0 w-2.5 h-2.5 rounded-full bg-charge animate-pulse" />}
+          </button>
+        );
+      })}
     </div>
   );
 }
