@@ -210,7 +210,15 @@ body {
    message arriving or an optimistic send), never replays on re-render
    since React keeps the same DOM node across updates. */
 @keyframes tl-bubble-in {
-  from { opacity: 0; transform: translateY(6px) scale(0.98); }
-  to { opacity: 1; transform: translateY(0) scale(1); }
+  0% { opacity: 0; transform: translateY(14px) scale(0.9); }
+  60% { opacity: 1; transform: translateY(-2px) scale(1.015); }
+  100% { opacity: 1; transform: translateY(0) scale(1); }
 }
-.tl-bubble-in { animation: tl-bubble-in 0.22s cubic-bezier(0.16, 1, 0.3, 1) both; }
+.tl-bubble-in { animation: tl-bubble-in 0.32s cubic-bezier(0.16, 1, 0.3, 1) both; }
+
+/* While the chat composer is focused, the on-screen keyboard is up —
+   the bottom tab bar has no business floating on top of/above it, so
+   it's hidden entirely and the chat panel reclaims that strip of
+   screen. Pure CSS (:has), no JS/state plumbing needed. */
+body:has(.tl-chat-textarea:focus) .tl-bottom-nav { display: none; }
+body:has(.tl-chat-textarea:focus) .tl-chat-panel { bottom: 0; }
