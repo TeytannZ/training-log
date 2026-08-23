@@ -205,3 +205,12 @@ body {
     transition-duration: 0.001ms !important;
   }
 }
+
+/* Chat bubble entrance — plays once when a bubble first mounts (new
+   message arriving or an optimistic send), never replays on re-render
+   since React keeps the same DOM node across updates. */
+@keyframes tl-bubble-in {
+  from { opacity: 0; transform: translateY(6px) scale(0.98); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+.tl-bubble-in { animation: tl-bubble-in 0.22s cubic-bezier(0.16, 1, 0.3, 1) both; }
