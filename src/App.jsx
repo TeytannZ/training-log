@@ -6,7 +6,7 @@ import {
   Plus, Pencil, Trash2, Camera, X, Check, Star, Dumbbell,
   Loader2, ChevronDown, Search, Download, Upload, ChevronRight,
   Cloud, RefreshCw, AlertTriangle, Sparkles, Users, Send, Copy, Calendar,
-  Home, User, WifiOff, Clock, Flame, Volume2, VolumeX, Menu, Share,
+  Home, User, WifiOff, Clock, Flame, Volume2, VolumeX, Menu, Share, Archive,
 } from "lucide-react";
 
 // The original app used `window.storage`, an API that only exists inside
@@ -57,11 +57,11 @@ const FIREBASE_CONFIG = {
 // on sight, so the app reuses that real system instead of an invented
 // one. See index.css for the actual hex values behind each class. ----
 const WEIGHT_INFO = {
-  Light: { bg: "bg-w1-soft", text: "text-w1-strong", ring: "ring-w1-ring", dot: "bg-w1", solid: "bg-w1-strong", accent: "text-w1", hex: "#ded7c5", plate: "White", desc: "خفيف — سهل" },
-  "Light-Medium": { bg: "bg-w2-soft", text: "text-w2-strong", ring: "ring-w2-ring", dot: "bg-w2", solid: "bg-w2-strong", accent: "text-w2", hex: "#57c07a", plate: "Green", desc: "بين الخفيف والمتوسط" },
-  Medium: { bg: "bg-w3-soft", text: "text-w3-strong", ring: "ring-w3-ring", dot: "bg-w3", solid: "bg-w3-strong", accent: "text-w3", hex: "#e8c247", plate: "Yellow", desc: "متوسط — مجهود واضح" },
-  "Medium-Heavy": { bg: "bg-w4-soft", text: "text-w4-strong", ring: "ring-w4-ring", dot: "bg-w4", solid: "bg-w4-strong", accent: "text-w4", hex: "#6fa8dd", plate: "Blue", desc: "بين المتوسط والثقيل" },
-  Heavy: { bg: "bg-w5-soft", text: "text-w5-strong", ring: "ring-w5-ring", dot: "bg-w5", solid: "bg-w5-strong", accent: "text-w5", hex: "#ef6a5f", plate: "Red", desc: "ثقيل — قرب أقصى مجهود" },
+  Light: { bg: "bg-w1-soft", text: "text-w1-strong", ring: "ring-w1-ring", dot: "bg-w1", solid: "bg-w1-strong", accent: "text-w1", hex: "#ded7c5", plate: "White", desc: "خفيف — سهل", reps: "15-20+ تكرار" },
+  "Light-Medium": { bg: "bg-w2-soft", text: "text-w2-strong", ring: "ring-w2-ring", dot: "bg-w2", solid: "bg-w2-strong", accent: "text-w2", hex: "#57c07a", plate: "Green", desc: "بين الخفيف والمتوسط", reps: "12-15 تكرار" },
+  Medium: { bg: "bg-w3-soft", text: "text-w3-strong", ring: "ring-w3-ring", dot: "bg-w3", solid: "bg-w3-strong", accent: "text-w3", hex: "#e8c247", plate: "Yellow", desc: "متوسط — مجهود واضح", reps: "10-12 تكرار" },
+  "Medium-Heavy": { bg: "bg-w4-soft", text: "text-w4-strong", ring: "ring-w4-ring", dot: "bg-w4", solid: "bg-w4-strong", accent: "text-w4", hex: "#6fa8dd", plate: "Blue", desc: "بين المتوسط والثقيل", reps: "8-10 تكرار" },
+  Heavy: { bg: "bg-w5-soft", text: "text-w5-strong", ring: "ring-w5-ring", dot: "bg-w5", solid: "bg-w5-strong", accent: "text-w5", hex: "#ef6a5f", plate: "Red", desc: "ثقيل — قرب أقصى مجهود", reps: "4-6 تكرار" },
 };
 const WEIGHT_OPTIONS = ["Light", "Light-Medium", "Medium", "Medium-Heavy", "Heavy"];
 const STORAGE_KEY = "training-log-plans-v4";
@@ -416,6 +416,16 @@ function subscribeAllThreads(cb, onError) {
 async function markThreadSeen(uid, role) {
   try { await setDoc(doc(dbase, "threads", uid), role === "admin" ? { unreadForAdmin: false } : { unreadForUser: false }, { merge: true }); } catch (err) { /* best-effort */ }
 }
+async function adminArchiveThread(uid, archived) {
+  await setDoc(doc(dbase, "threads", uid), { archivedByAdmin: archived }, { merge: true });
+}
+// Firestore doesn't cascade-delete subcollections — every message has
+// to be deleted individually before the thread doc itself goes.
+async function adminDeleteThread(uid) {
+  const snap = await getDocs(collection(dbase, "threads", uid, "messages"));
+  await Promise.all(snap.docs.map((d) => deleteDoc(d.ref)));
+  await deleteDoc(doc(dbase, "threads", uid));
+}
 
 // ---- Soft rate limiting (message/submission spam) ----
 // This is enforced client-side via a per-user counter document, checked
@@ -495,18 +505,25 @@ function PlateBadge({ weight, size = "sm" }) {
 // tier keeps its full name AND its rep range legible on a phone screen,
 // nothing gets hidden past a breakpoint.
 function PlateLegend() {
+  const [infoOpen, setInfoOpen] = useState(false);
   return (
     <div className="mb-5 rounded-2xl border border-line bg-card px-4 py-3.5">
-      <div className="flex items-center gap-1.5 mb-3">
-        <Dumbbell className="w-3.5 h-3.5 text-ink-faint" />
-        <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-ink-faint">دليل الأوزان — الحمل من النظرة الأولى</p>
-      </div>
+      <button onClick={() => setInfoOpen((v) => !v)} className="flex items-center gap-1.5 mb-3 w-full">
+        <Dumbbell className="w-3.5 h-3.5 text-ink-faint shrink-0" />
+        <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-ink-faint flex-1 text-right">دليل الأوزان — الحمل من النظرة الأولى</p>
+        <span className="w-4 h-4 rounded-full bg-mist text-ink-faint flex items-center justify-center text-[10px] font-black shrink-0">؟</span>
+      </button>
+      {infoOpen && (
+        <p className="text-xs text-ink-soft leading-relaxed bg-mist rounded-xl px-3 py-2.5 mb-3">
+          تُصنَّف حسب آخر تكرار تقدر تؤديه بهذا الوزن كحد أقصى، بحيث لا تقدر تزيد أي تكرار بعد هذا العدد.
+        </p>
+      )}
       <div className="space-y-1.5">
         {WEIGHT_OPTIONS.map((w) => (
           <div key={w} className="flex flex-row-reverse items-center gap-3 rounded-xl bg-mist px-3 py-2">
             <PlateIcon weight={w} size={26} shape="square" />
             <span className="font-bold text-ink text-sm flex-1 text-right">{wLabel(w)}</span>
-            <span className="text-xs text-ink-faint font-mono text-left">{WEIGHT_INFO[w].desc}</span>
+            <span className="text-xs text-ink-faint font-mono text-left">{WEIGHT_INFO[w].reps}</span>
           </div>
         ))}
       </div>
@@ -1297,13 +1314,30 @@ function CommunityPage({ onFork, isOnline }) {
 // the user-facing "Chat" tab and the admin inbox. `viewerRole` is
 // "user" or "admin"; `threadUid` is whose thread this is (always the
 // user's uid, even when the admin is the one viewing it). ----
+function fmtBubbleTime(seconds) {
+  if (!seconds) return "";
+  const d = new Date(seconds * 1000);
+  const h = d.getHours(), m = String(d.getMinutes()).padStart(2, "0");
+  const period = h >= 12 ? "م" : "ص";
+  const h12 = h % 12 || 12;
+  return `${h12}:${m} ${period}`;
+}
+function dayLabel(seconds) {
+  const d = new Date(seconds * 1000), today = new Date(), yest = new Date(Date.now() - 86400000);
+  const same = (a, b) => a.toDateString() === b.toDateString();
+  if (same(d, today)) return "اليوم";
+  if (same(d, yest)) return "أمس";
+  return d.toLocaleDateString("ar", { day: "numeric", month: "long" });
+}
+
 function ChatBubble({ msg, mine, status }) {
+  const seconds = msg.createdAt?.seconds || (msg.ts ? Math.floor(msg.ts / 1000) : null);
   return (
     <div dir="ltr" className="flex tl-bubble-in" style={{ justifyContent: mine ? "flex-end" : "flex-start" }}>
       <div className="max-w-[78%]">
         <div
           dir="rtl"
-          className={`rounded-2xl px-3.5 py-2.5 text-sm leading-relaxed transition-opacity duration-300 ${
+          className={`rounded-2xl px-3.5 py-2.5 text-sm leading-relaxed shadow-sm transition-opacity duration-300 ${
             mine ? "bg-charge text-paper rounded-br-md" : "bg-card border border-line text-ink rounded-bl-md"
           } ${status === "pending" ? "opacity-55" : "opacity-100"}`}
         >
@@ -1314,8 +1348,13 @@ function ChatBubble({ msg, mine, status }) {
               <Share className="w-3 h-3" /> رابط مرفق
             </a>
           )}
+          {seconds && (
+            <p dir="rtl" className={`text-[10px] mt-1 ${mine ? "text-paper/70" : "text-ink-faint"}`}>
+              {fmtBubbleTime(seconds)}{status === "pending" && " · جارٍ الإرسال"}
+            </p>
+          )}
         </div>
-        {status === "error" && <p dir="rtl" className="text-[11px] text-danger mt-1 text-left">تعذّر الإرسال</p>}
+        {status === "error" && <p dir="rtl" className="text-[11px] text-danger mt-1 text-left">تعذّر الإرسال — اضغط لإعادة المحاولة</p>}
       </div>
     </div>
   );
@@ -1385,9 +1424,11 @@ function ChatThread({ threadUid, viewerRole, peerName, rateLimitUid }) {
     ...pending,
   ].sort((a, b) => (a.createdAt?.seconds ? a.createdAt.seconds * 1000 : a.ts || 0) - (b.createdAt?.seconds ? b.createdAt.seconds * 1000 : b.ts || 0));
 
+  let lastDay = null;
+
   return (
     <div className="flex flex-col h-full min-h-0">
-      <div ref={listRef} className="flex-1 min-h-0 overflow-y-auto px-1 py-3 space-y-2.5 scroll-smooth">
+      <div ref={listRef} className="flex-1 min-h-0 overflow-y-auto rounded-2xl bg-mist/60 px-3 py-3 space-y-2.5 scroll-smooth">
         {messages === null && !loadError && <p className="text-sm text-ink-faint flex items-center gap-2 justify-center py-10"><Loader2 className="w-4 h-4 animate-spin" /> جارٍ التحميل…</p>}
         {loadError && <p className="text-sm text-danger text-center py-10 px-6">تعذر الاتصال بالمحادثة — تحقق من الاتصال بالإنترنت، أو أوقف أي مانع إعلانات مؤقتاً (يمنع أحياناً اتصال المحادثة الفوري).</p>}
         {combined.length === 0 && messages !== null && (
@@ -1395,14 +1436,27 @@ function ChatThread({ threadUid, viewerRole, peerName, rateLimitUid }) {
             {viewerRole === "user" ? "مشكلة في خطة، اقتراح، أي شيء — ابدأ المحادثة." : "لا رسائل بعد في هذه المحادثة."}
           </p>
         )}
-        {combined.map((m) => (
-          <div key={m.id || m.clientId} onClick={() => m.status === "error" && retry(m)} className={m.status === "error" ? "cursor-pointer" : ""}>
-            <ChatBubble msg={m} mine={m.from === viewerRole} status={m.status} />
-          </div>
-        ))}
+        {combined.map((m) => {
+          const seconds = m.createdAt?.seconds || (m.ts ? Math.floor(m.ts / 1000) : null);
+          const label = seconds ? dayLabel(seconds) : null;
+          const showDivider = label && label !== lastDay;
+          if (showDivider) lastDay = label;
+          return (
+            <React.Fragment key={m.id || m.clientId}>
+              {showDivider && (
+                <div className="flex items-center justify-center py-1.5">
+                  <span className="text-[10px] font-bold text-ink-faint bg-card border border-line rounded-full px-3 py-1">{label}</span>
+                </div>
+              )}
+              <div onClick={() => m.status === "error" && retry(m)} className={m.status === "error" ? "cursor-pointer" : ""}>
+                <ChatBubble msg={m} mine={m.from === viewerRole} status={m.status} />
+              </div>
+            </React.Fragment>
+          );
+        })}
       </div>
 
-      <div className="shrink-0 border-t border-line pt-2.5">
+      <div className="shrink-0 pt-2.5">
         {image && (
           <div className="relative w-16 h-16 mb-2 tl-bubble-in">
             <img src={image} alt="" className="w-16 h-16 rounded-xl object-cover" />
@@ -1412,26 +1466,26 @@ function ChatThread({ threadUid, viewerRole, peerName, rateLimitUid }) {
         {linkOpen && (
           <input value={link} onChange={(e) => setLink(e.target.value)} placeholder="رابط فيديو أو ملف" className={inputClass + " mb-2 text-sm py-2"} autoFocus />
         )}
-        <div className="flex items-end gap-2">
-          <button onClick={() => fileRef.current?.click()} className="p-2.5 rounded-full bg-mist text-ink-soft hover:text-ink shrink-0 transition-colors" aria-label="إرفاق صورة"><Camera className="w-4 h-4" /></button>
-          <button onClick={() => setLinkOpen((v) => !v)} className={`p-2.5 rounded-full shrink-0 transition-colors ${linkOpen ? "bg-charge-soft text-charge" : "bg-mist text-ink-soft hover:text-ink"}`} aria-label="إرفاق رابط"><Share className="w-4 h-4" /></button>
+        <div className="flex items-end gap-2 bg-card border border-line rounded-full pl-1.5 pr-2 py-1.5 shadow-sm focus-within:ring-2 focus-within:ring-charge/40 transition-shadow">
+          <button onClick={() => fileRef.current?.click()} className="p-2 rounded-full text-ink-faint hover:text-charge hover:bg-charge-soft shrink-0 transition-colors" aria-label="إرفاق صورة"><Camera className="w-4 h-4" /></button>
+          <button onClick={() => setLinkOpen((v) => !v)} className={`p-2 rounded-full shrink-0 transition-colors ${linkOpen ? "text-charge bg-charge-soft" : "text-ink-faint hover:text-charge hover:bg-charge-soft"}`} aria-label="إرفاق رابط"><Share className="w-4 h-4" /></button>
           <textarea
             value={body}
             onChange={(e) => setBody(e.target.value)}
             rows={1}
             placeholder="اكتب رسالة…"
-            className={inputClass + " resize-none py-2.5 flex-1"}
+            className="tl-chat-textarea resize-none flex-1 bg-transparent text-sm text-ink placeholder:text-ink-faint focus:outline-none py-1.5 max-h-24"
             onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); } }}
           />
           {/* Sends fire-and-forget — no spinner blocking the button. The
              bubble itself shows a subtle "sending" state (see ChatBubble),
              so the person can keep typing the next message right away. */}
-          <button disabled={!body.trim() && !image} onClick={send} className="p-3 rounded-full bg-charge text-paper disabled:opacity-30 hover:bg-charge-strong active:scale-90 transition-all shrink-0" aria-label="إرسال">
+          <button disabled={!body.trim() && !image} onClick={send} className="p-2.5 rounded-full bg-charge text-paper disabled:opacity-30 disabled:scale-100 hover:bg-charge-strong active:scale-90 transition-all shrink-0" aria-label="إرسال">
             <Send className="w-4 h-4" />
           </button>
         </div>
         <input ref={fileRef} type="file" accept="image/*" className="hidden" onChange={async (e) => { const f = e.target.files?.[0]; if (!f) return; try { setImage(await resizeImage(f, 600)); } catch (err) { /* ignore */ } e.target.value = ""; }} />
-        {limited && <p className="text-xs text-danger mt-1.5">رسائل كثيرة خلال وقت قصير — حاول مرة أخرى بعد قليل.</p>}
+        {limited && <p className="text-xs text-danger mt-1.5 px-2">رسائل كثيرة خلال وقت قصير — حاول مرة أخرى بعد قليل.</p>}
       </div>
     </div>
   );
@@ -1488,10 +1542,16 @@ function AdminInbox() {
   const [threads, setThreads] = useState(null);
   const [loadError, setLoadError] = useState(false);
   const [openUid, setOpenUid] = useState(null);
+  const [showArchived, setShowArchived] = useState(false);
+  const [confirmDeleteUid, setConfirmDeleteUid] = useState(null);
+  const [busyUid, setBusyUid] = useState(null);
   useEffect(() => {
     const unsub = subscribeAllThreads((items) => { setThreads(items); setLoadError(false); }, () => setLoadError(true));
     return () => unsub();
   }, []);
+
+  const archive = async (uid, archived) => { setBusyUid(uid); try { await adminArchiveThread(uid, archived); } catch (err) { /* surfaced via list not refreshing */ } setBusyUid(null); };
+  const del = async (uid) => { setBusyUid(uid); try { await adminDeleteThread(uid); } catch (err) { /* ignore */ } setBusyUid(null); setConfirmDeleteUid(null); if (openUid === uid) setOpenUid(null); };
 
   if (openUid) {
     const t = threads?.find((x) => x.id === openUid);
@@ -1500,41 +1560,86 @@ function AdminInbox() {
         <div className="shrink-0 flex items-center gap-2.5 pb-3 border-b border-line">
           <button onClick={() => setOpenUid(null)} className="p-2 -mr-1 rounded-full text-ink-faint hover:bg-mist active:scale-90 transition-all shrink-0" aria-label="رجوع"><ChevronRight className="w-4 h-4" /></button>
           <div className={`w-8 h-8 rounded-full flex items-center justify-center font-black text-xs shrink-0 ${AVATAR_CLASS[avatarColorFor(t?.name || openUid)]}`}>{(t?.name || "؟")[0]}</div>
-          <p className="font-black text-ink text-sm truncate">{t?.name || "مستخدم"}</p>
+          <p className="font-black text-ink text-sm truncate flex-1">{t?.name || "مستخدم"}</p>
+          <button onClick={() => archive(openUid, !t?.archivedByAdmin)} disabled={busyUid === openUid} className="p-2 rounded-full text-ink-faint hover:text-charge hover:bg-charge-soft active:scale-90 transition-all shrink-0" aria-label="أرشفة">
+            <Archive className="w-4 h-4" />
+          </button>
+          <button onClick={() => setConfirmDeleteUid(openUid)} disabled={busyUid === openUid} className="p-2 rounded-full text-ink-faint hover:text-danger hover:bg-danger-soft active:scale-90 transition-all shrink-0" aria-label="حذف المحادثة">
+            <Trash2 className="w-4 h-4" />
+          </button>
         </div>
         <ChatThread threadUid={openUid} viewerRole="admin" peerName={null} />
+        {confirmDeleteUid === openUid && (
+          <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/60 backdrop-blur-[2px] px-6" onClick={() => setConfirmDeleteUid(null)}>
+            <div className="bg-card rounded-2xl p-5 max-w-xs w-full" onClick={(e) => e.stopPropagation()}>
+              <p className="font-bold text-ink text-sm mb-1">حذف هذه المحادثة؟</p>
+              <p className="text-xs text-ink-faint mb-4">سيُحذف كل الرسائل نهائياً، ولا يمكن التراجع.</p>
+              <div className="flex gap-2">
+                <button onClick={() => del(openUid)} disabled={busyUid === openUid} className="flex-1 py-2.5 rounded-xl text-sm font-bold bg-danger text-white disabled:opacity-50">{busyUid === openUid ? "…" : "حذف"}</button>
+                <button onClick={() => setConfirmDeleteUid(null)} className="flex-1 py-2.5 rounded-xl text-sm font-bold text-ink-faint border border-line">إلغاء</button>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     );
   }
 
+  const visible = (threads || []).filter((t) => !!t.archivedByAdmin === showArchived);
+
   return (
-    <div className="h-full min-h-0 overflow-y-auto space-y-1.5">
-      {threads === null && !loadError && <p className="text-sm text-ink-faint flex items-center gap-2 justify-center py-10"><Loader2 className="w-4 h-4 animate-spin" /> جارٍ التحميل…</p>}
-      {loadError && <p className="text-sm text-danger text-center py-10 px-6">تعذر تحميل الرسائل — تحقق من الاتصال، أو أوقف أي مانع إعلانات مؤقتاً.</p>}
-      {threads?.length === 0 && !loadError && <p className="text-sm text-ink-faint text-center py-10">لا توجد محادثات بعد.</p>}
-      {threads?.map((t, i) => {
-        const color = avatarColorFor(t.name || t.id);
-        return (
-          <button
-            key={t.id}
-            onClick={() => setOpenUid(t.id)}
-            style={{ animationDelay: `${Math.min(i, 8) * 30}ms` }}
-            className={`tl-bubble-in w-full flex items-center gap-3 rounded-2xl p-3.5 text-right transition-all hover:-translate-y-px active:scale-[0.99] ${
-              t.unreadForAdmin ? "bg-charge-soft border border-charge/25" : "bg-card border border-line hover:border-ink-faint"
-            }`}
-          >
-            <div className={`w-10 h-10 rounded-full flex items-center justify-center font-black shrink-0 ${AVATAR_CLASS[color]}`}>{(t.name || "؟")[0]}</div>
-            <div className="min-w-0 flex-1">
-              <div className="flex items-center justify-between gap-2">
-                <p className="font-bold text-sm text-ink truncate">{t.name || "مستخدم"}</p>
-                {t.updatedAt?.seconds && <span className="text-[10px] text-ink-faint shrink-0">{timeAgo(t.updatedAt.seconds)}</span>}
-              </div>
-              <p className={`text-xs truncate ${t.unreadForAdmin ? "text-ink font-bold" : "text-ink-faint"}`}>{t.lastFrom === "admin" ? "أنت: " : ""}{t.lastMessage || ""}</p>
+    <div className="h-full min-h-0 flex flex-col">
+      <div className="shrink-0 flex items-center gap-1.5 mb-3">
+        <button onClick={() => setShowArchived(false)} className={`px-3 py-1.5 rounded-full text-xs font-bold transition-colors ${!showArchived ? "bg-charge text-paper" : "bg-mist text-ink-faint hover:text-ink"}`}>المحادثات</button>
+        <button onClick={() => setShowArchived(true)} className={`px-3 py-1.5 rounded-full text-xs font-bold transition-colors flex items-center gap-1 ${showArchived ? "bg-charge text-paper" : "bg-mist text-ink-faint hover:text-ink"}`}><Archive className="w-3 h-3" /> الأرشيف</button>
+      </div>
+      <div className="flex-1 min-h-0 overflow-y-auto space-y-1.5">
+        {threads === null && !loadError && <p className="text-sm text-ink-faint flex items-center gap-2 justify-center py-10"><Loader2 className="w-4 h-4 animate-spin" /> جارٍ التحميل…</p>}
+        {loadError && <p className="text-sm text-danger text-center py-10 px-6">تعذر تحميل الرسائل — تحقق من الاتصال، أو أوقف أي مانع إعلانات مؤقتاً.</p>}
+        {threads !== null && !loadError && visible.length === 0 && <p className="text-sm text-ink-faint text-center py-10">{showArchived ? "لا محادثات مؤرشفة." : "لا توجد محادثات بعد."}</p>}
+        {visible.map((t, i) => {
+          const color = avatarColorFor(t.name || t.id);
+          return (
+            <div
+              key={t.id}
+              style={{ animationDelay: `${Math.min(i, 8) * 30}ms` }}
+              className={`tl-bubble-in w-full flex items-center gap-2 rounded-2xl p-3 text-right transition-all ${
+                t.unreadForAdmin ? "bg-charge-soft border border-charge/25" : "bg-card border border-line hover:border-ink-faint"
+              }`}
+            >
+              <button onClick={() => setOpenUid(t.id)} className="flex items-center gap-3 flex-1 min-w-0 text-right">
+                <div className={`w-10 h-10 rounded-full flex items-center justify-center font-black shrink-0 ${AVATAR_CLASS[color]}`}>{(t.name || "؟")[0]}</div>
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center justify-between gap-2">
+                    <p className="font-bold text-sm text-ink truncate">{t.name || "مستخدم"}</p>
+                    {t.updatedAt?.seconds && <span className="text-[10px] text-ink-faint shrink-0">{timeAgo(t.updatedAt.seconds)}</span>}
+                  </div>
+                  <p className={`text-xs truncate ${t.unreadForAdmin ? "text-ink font-bold" : "text-ink-faint"}`}>{t.lastFrom === "admin" ? "أنت: " : ""}{t.lastMessage || ""}</p>
+                </div>
+                {t.unreadForAdmin && <span className="shrink-0 w-2.5 h-2.5 rounded-full bg-charge animate-pulse" />}
+              </button>
+              <button onClick={() => archive(t.id, !t.archivedByAdmin)} disabled={busyUid === t.id} className="p-2 rounded-full text-ink-faint hover:text-charge hover:bg-charge-soft active:scale-90 transition-all shrink-0" aria-label="أرشفة">
+                <Archive className="w-3.5 h-3.5" />
+              </button>
+              <button onClick={() => setConfirmDeleteUid(t.id)} disabled={busyUid === t.id} className="p-2 rounded-full text-ink-faint hover:text-danger hover:bg-danger-soft active:scale-90 transition-all shrink-0" aria-label="حذف">
+                <Trash2 className="w-3.5 h-3.5" />
+              </button>
             </div>
-            {t.unreadForAdmin && <span className="shrink-0 w-2.5 h-2.5 rounded-full bg-charge animate-pulse" />}
-          </button>
-        );
-      })}
+          );
+        })}
+      </div>
+      {confirmDeleteUid && confirmDeleteUid !== openUid && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/60 backdrop-blur-[2px] px-6" onClick={() => setConfirmDeleteUid(null)}>
+          <div className="bg-card rounded-2xl p-5 max-w-xs w-full" onClick={(e) => e.stopPropagation()}>
+            <p className="font-bold text-ink text-sm mb-1">حذف هذه المحادثة؟</p>
+            <p className="text-xs text-ink-faint mb-4">سيُحذف كل الرسائل نهائياً، ولا يمكن التراجع.</p>
+            <div className="flex gap-2">
+              <button onClick={() => del(confirmDeleteUid)} disabled={busyUid === confirmDeleteUid} className="flex-1 py-2.5 rounded-xl text-sm font-bold bg-danger text-white disabled:opacity-50">{busyUid === confirmDeleteUid ? "…" : "حذف"}</button>
+              <button onClick={() => setConfirmDeleteUid(null)} className="flex-1 py-2.5 rounded-xl text-sm font-bold text-ink-faint border border-line">إلغاء</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -1579,10 +1684,10 @@ function AuthStep({ onGoogle, onGuest, onEmailAuth, status, error }) {
 
 function TutorialStep({ onDone }) {
   const slides = [
-    { icon: Star, color: "text-charge fill-charge", bg: "bg-charge-soft", title: "عضلات التركيز", text: "النجمة تُشير إلى عضلة تركيز — هناك يذهب الحجم الإضافي عن قصد." },
-    { icon: Dumbbell, color: "text-w4-strong", bg: "bg-w4-soft", title: "ألوان الأوزان، ببساطة", text: "الوزن يعني الحمل الذي يكون فيه تكرارك الأخير هو آخر تكرار تقدر تؤديه بأداء صحيح. ألوان الأوزان في الأعلى تذكّرك دائماً." },
-    { icon: RefreshCw, color: "text-w5-strong", bg: "bg-w5-soft", title: "تقدّم مدمج", text: "حوالي الأسبوع 6-8 ستحصل على تذكير لتبديل 1-2 تمرين لكل عضلة — مبني على أبحاث، وليس تبديلاً عشوائياً." },
-    { icon: Home, color: "text-w2-strong", bg: "bg-w2-soft", title: "جلسات موجّهة", text: "اضغط \"بدء التمرين\" لجلسة موجّهة كاملة — إحماء، تتبّع المجموعات، مؤقتات الراحة، كل شيء يُدار من أجلك." },
+    { icon: Star, color: "text-charge fill-charge", bg: "bg-charge-soft", title: "عضلات التركيز", text: "النجمة تُشير إلى عضلة تركيز، وهي العضلات الأساسية التي يجب التركيز عليها." },
+    { icon: Dumbbell, color: "text-w4-strong", bg: "bg-w4-soft", title: "الأوزان وأصنافها", text: "تُصنَّف حسب آخر تكرار تقدر تؤديه بهذا الوزن كحد أقصى، بحيث لا تقدر تزيد أي تكرار بعد هذا العدد." },
+    { icon: RefreshCw, color: "text-w5-strong", bg: "bg-w5-soft", title: "تغيير التمارين", text: "بعد قرابة 6-8 أسابيع ستحصل على تذكير لتغيير عدد من التمارين لكل عضلة — مبني على أبحاث، وليس تبديلاً عشوائياً." },
+    { icon: Home, color: "text-w2-strong", bg: "bg-w2-soft", title: "بدء التمرين", text: "جلسة موجّهة بالكامل: إحماء، مجموعات، تكرارات، وأوقات راحة بعد كل مجموعة وتمرين." },
   ];
   const [i, setI] = useState(0);
   const slide = slides[i];
@@ -2444,7 +2549,7 @@ export default function TrainingLog() {
 
         {page === "chat" && canEdit && (
           <div
-            className="fixed inset-x-0 z-20 flex flex-col"
+            className="tl-chat-panel fixed inset-x-0 z-20 flex flex-col"
             style={{ top: "3.5rem", bottom: "calc(4.5rem + env(safe-area-inset-bottom))" }}
           >
             <div className="max-w-2xl w-full mx-auto px-4 sm:px-6 pt-4 flex-1 min-h-0 flex flex-col">
@@ -2575,7 +2680,7 @@ export default function TrainingLog() {
         )}
       </div>
 
-      <nav className="fixed bottom-0 inset-x-0 z-30 bg-card border-t border-line" style={{ paddingBottom: "env(safe-area-inset-bottom)" }}>
+      <nav className="tl-bottom-nav fixed bottom-0 inset-x-0 z-30 bg-card border-t border-line" style={{ paddingBottom: "env(safe-area-inset-bottom)" }}>
         <div className="grid grid-cols-4 max-w-2xl mx-auto" style={{ height: "4.5rem" }}>
           {[
             { id: "train", label: "التمرين", Icon: Home },
