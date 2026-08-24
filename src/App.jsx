@@ -78,114 +78,56 @@ function ex(id, name, muscle, focus, sets, reps, weight, rest, alt = [], restBet
 }
 function mkDay(id, label, title, tagline, exercises) { return { id, label, title, tagline, exercises }; }
 
-// Straight 4-day Upper/Lower x2 split: each muscle gets hit twice a week
-// instead of once, which is the stronger driver for lagging muscles than
-// a single-hit body-part split. Mon/Tue train, Wed rest, Thu/Fri train,
-// Sat/Sun rest. Every line lists one primary lift; `alt` is a same-slot
-// substitute if equipment's busy or a lift doesn't feel right that day —
-// pick one, not both. Progression: compounds RPE 7-9, isolation RPE 8-9
-// (1-2 reps in reserve) — add weight once you hit the top of the rep
-// range for all sets, two sessions running.
-const ESTABLISHED_DAYS = [
-  mkDay("day1", "اليوم 1", "علوي أ", "الظهر، الصدر، الكتف الخلفي/الترابيس، البايسبس", [
-    ex("d1e1", "Weighted pull-up", "Back", false, 4, "6-10", "Heavy", "2.5 min", ["Lat pulldown, wide grip"]),
-    ex("d1e2", "Chest-supported row", "Back", false, 3, "8-12", "Medium-Heavy", "2 min", ["Seated cable row"]),
-    ex("d1e3", "Incline dumbbell press", "Chest", false, 3, "8-12", "Medium-Heavy", "2 min", ["Incline barbell press"]),
-    ex("d1e4", "Face pull", "Rear delt / traps", true, 3, "12-15", "Light", "60 sec", ["Reverse pec-deck fly"]),
-    ex("d1e5", "Barbell shrug", "Traps", true, 3, "10-15", "Medium-Heavy", "90 sec", ["Dumbbell shrug", "Cable shrug"]),
-    ex("d1e6", "Cable curl — short head (elbows forward)", "Biceps", false, 2, "10-12", "Medium", "60 sec"),
-    ex("d1e7", "Cable curl — long head (elbows back)", "Biceps", false, 2, "10-12", "Medium", "60 sec"),
+// FINAL PLAN — the one and only real template, given verbatim by the
+// admin. Upper/Lower ×2, 4 days/week, each muscle hit twice weekly.
+// Rep-tier scale and rest convention below are exactly as specified —
+// do not alter without the admin's explicit say-so again.
+//   خفيف 15-20+ · خفيف-متوسط 12-15 · متوسط 10-12 · متوسط-ثقيل 8-10 · ثقيل 4-6
+//   Rest: heavy/medium-heavy compounds 2-3min · everything else 60-90s
+//   Weight: no fixed numbers — load to failure/near-failure (1-2 reps
+//   left) at the target rep count; add load once you hit the top of
+//   the range for all sets, 2 sessions running.
+//   Order = exercises are listed compounds-before-isolation; do them
+//   in that order.
+const UPPER_LOWER_DAYS = [
+  mkDay("ul1", "اليوم 1", "علوي أ", "الظهر، الترابيس، الكتف الخلفي، البايسبس", [
+    ex("ul1e1", "Pull-up (unweighted, alternate supinated grip some sets)", "Back / biceps", false, 4, "AMRAP", "Heavy", "2.5 min"),
+    ex("ul1e2", "Chest-supported row (seated pulling machine)", "Back (mid-traps, rhomboids, lats)", false, 3, "10-12", "Medium", "90 sec", ["Seated cable row"]),
+    ex("ul1e3", "Lat pulldown (alternate grip each set)", "Back (lats) / biceps", false, 3, "10-12", "Medium", "90 sec", ["Assisted pull-up machine"]),
+    ex("ul1e4", "Face pull", "Rear delt / traps", false, 3, "12-15", "Light-Medium", "60 sec", ["Reverse pec-deck fly"]),
+    ex("ul1e5", "Barbell or dumbbell shrug", "Upper traps", false, 3, "10-12", "Medium", "90 sec", ["Cable shrug"]),
+    ex("ul1e6", "Cable curl — short head (elbows forward)", "Biceps", false, 2, "12-15", "Light-Medium", "60 sec"),
+    ex("ul1e7", "Cable curl — long head (elbows back)", "Biceps", false, 2, "12-15", "Light-Medium", "60 sec"),
+    ex("ul1e8", "Cable curl — brachialis (hammer/neutral grip)", "Biceps / brachialis", false, 2, "12-15", "Light-Medium", "60 sec"),
   ]),
-  mkDay("day2", "اليوم 2", "سفلي أ", "الفخذ الأمامي، الهامسترينغ، المؤخرة، السمانة، الجذع · تدرّج في القرفصاء إذا اشتد ألم الساق — بدّل إلى مكبس الأرجل", [
-    ex("d2e1", "Back squat", "Quads", false, 4, "5-8", "Heavy", "2.5-3 min", ["Hack squat"]),
-    ex("d2e2", "Romanian deadlift", "Hamstrings", true, 3, "8-10", "Heavy", "2.5 min", ["Lying leg curl"]),
-    ex("d2e3", "Hip thrust", "Glutes", true, 3, "10-12", "Medium-Heavy", "90 sec", ["Cable pull-through"]),
-    ex("d2e4", "Leg extension", "Quads", false, 3, "12-15", "Medium", "60 sec"),
-    ex("d2e5", "Standing calf raise", "Calves", true, 4, "10-15", "Medium", "60 sec", ["Seated calf raise"]),
-    ex("d2e6", "Hanging leg raise", "Core", true, 3, "12-15", "Light-Medium", "60 sec", ["Cable crunch"]),
+  mkDay("ul2", "اليوم 2", "سفلي أ", "الفخذ الأمامي، الهامسترينغ، المؤخرة، السمانة، الجذع", [
+    ex("ul2e1", "Back squat", "Quads / glutes", false, 4, "4-6", "Heavy", "3 min", ["Hack squat (use if leg is still sensitive — less axial load)"]),
+    ex("ul2e2", "Lying leg curl", "Hamstrings", false, 3, "10-12", "Medium", "90 sec"),
+    ex("ul2e3", "Leg press (wide/high foot placement)", "Glutes (maximus-biased)", false, 3, "8-10", "Medium-Heavy", "2 min", ["Cable kickback"]),
+    ex("ul2e4", "Leg extension", "Quads", false, 3, "12-15", "Light-Medium", "60 sec"),
+    ex("ul2e5", "Standing calf raise", "Calves (gastrocnemius)", false, 4, "15-20", "Light", "60 sec", ["Leg press calf raise"]),
+    ex("ul2e6", "Hanging leg raise", "Abs (front)", false, 3, "12-15", "Light-Medium", "60 sec", ["Cable crunch"]),
   ]),
-  mkDay("day3", "اليوم 3", "علوي ب", "الصدر، الظهر، الكتفين، الترايسبس", [
-    ex("d3e1", "Flat barbell bench press", "Chest", false, 4, "6-10", "Heavy", "2.5 min", ["Flat dumbbell press"]),
-    ex("d3e2", "Weighted dips", "Chest / triceps", false, 3, "AMRAP", "Medium-Heavy", "2 min", ["Close-grip bench press"]),
-    ex("d3e3", "Lat pulldown, underhand grip", "Back", false, 3, "8-12", "Medium-Heavy", "2 min", ["Chin-ups"]),
-    ex("d3e4", "Cable lateral raise (leaning away)", "Delts", true, 3, "12-15", "Light-Medium", "60 sec", ["Dumbbell lateral raise"]),
-    ex("d3e5", "Rear-delt cable fly (45°)", "Rear delt", true, 3, "12-15", "Light", "60 sec", ["Machine reverse fly"]),
-    ex("d3e6", "Overhead one-arm cable extension", "Triceps", false, 2, "10-12", "Medium", "60 sec"),
-    ex("d3e7", "One-arm cable pushdown", "Triceps", false, 2, "10-12", "Medium", "60 sec"),
+  mkDay("ul3", "اليوم 3", "علوي ب", "الصدر، الكتف الأمامي/الجانبي، الترايسبس", [
+    ex("ul3e1", "Incline dumbbell or barbell press", "Chest (upper) / front delt", false, 3, "8-10", "Medium-Heavy", "2 min"),
+    ex("ul3e2", "Dips (unweighted)", "Chest / triceps", false, 3, "AMRAP", "Heavy", "2 min"),
+    ex("ul3e3", "Flat bench or dumbbell press", "Chest", false, 3, "8-10", "Medium-Heavy", "2 min"),
+    ex("ul3e4", "Lateral raise (cable, leaning away)", "Side delt", false, 3, "12-15", "Light-Medium", "60 sec", ["Dumbbell lateral raise"]),
+    ex("ul3e5", "Rear-delt cable fly (45°)", "Rear delt / traps", false, 3, "12-15", "Light-Medium", "60 sec"),
+    ex("ul3e6", "Triceps pushdown", "Triceps", false, 2, "10-12", "Medium", "60 sec"),
+    ex("ul3e7", "One-arm overhead cable extension", "Triceps", false, 2, "10-12", "Medium", "60 sec"),
   ]),
-  mkDay("day4", "اليوم 4", "سفلي ب", "الهامسترينغ، المؤخرة، السمانة، الجذع · نفس التحذير — تدرّج في الرفعة الميتة، بدّل إلى مكبس الأرجل عند الحاجة", [
-    ex("d4e1", "Deadlift (conventional or RDL)", "Hamstrings / glutes", true, 4, "5-8", "Heavy", "3 min", ["Trap bar deadlift"]),
-    ex("d4e2", "Bulgarian split squat", "Glutes", true, 3, "10-12/leg", "Medium-Heavy", "90 sec", ["Walking lunge", "Leg press"]),
-    ex("d4e3", "Lying leg curl", "Hamstrings", true, 3, "10-12", "Medium", "90 sec"),
-    ex("d4e4", "Hip abduction machine", "Glute medius", true, 3, "12-15", "Light-Medium", "60 sec", ["Banded lateral walk"]),
-    ex("d4e5", "Seated calf raise", "Calves", true, 4, "12-15", "Medium", "60 sec", ["Standing calf raise"]),
-    ex("d4e6", "Weighted plank / Pallof press", "Core (anti-rotation)", true, 3, "30-45 sec", "Light-Medium", "60 sec", ["Side plank"]),
-  ]),
-];
-
-const STEP_DOWN = { Heavy: "Medium-Heavy", "Medium-Heavy": "Medium", Medium: "Light-Medium", "Light-Medium": "Light", Light: "Light" };
-const RETURNING_DAYS = ESTABLISHED_DAYS.map((d) => ({ ...d, tagline: `${d.tagline} · تدرّج، الأسابيع 1-3`, exercises: d.exercises.map((e) => ({ ...e, weight: STEP_DOWN[e.weight] || e.weight, sets: Math.max(2, e.sets - 1) })) }));
-
-const STARTER_DAYS = [
-  mkDay("sday1", "اليوم 1", "الجسم الكامل أ", "أساس الجسم الكامل", [
-    ex("s1e1", "Back squat", "Quads / glutes", false, 3, "8-10", "Medium", "2 min"),
-    ex("s1e2", "Flat bench press", "Chest", false, 3, "8-10", "Medium", "2 min"),
-    ex("s1e3", "Seated cable row", "Back", false, 3, "10-12", "Medium", "90 sec"),
-    ex("s1e4", "Plank", "Core", false, 3, "20-40 sec hold", "Light-Medium", "60 sec"),
-    ex("s1e5", "Standing calf raise", "Calves", false, 2, "12-15", "Light-Medium", "60 sec"),
-  ]),
-  mkDay("sday2", "اليوم 2", "الجسم الكامل ب", "أساس الجسم الكامل", [
-    ex("s2e1", "Romanian deadlift", "Hamstrings / glutes", false, 3, "8-10", "Medium", "2 min"),
-    ex("s2e2", "Overhead press", "Delts", false, 3, "8-10", "Light-Medium", "2 min"),
-    ex("s2e3", "Lat pulldown", "Back", false, 3, "10-12", "Medium", "90 sec"),
-    ex("s2e4", "Hanging knee raise", "Core", false, 3, "8-12", "Light-Medium", "60 sec"),
-    ex("s2e5", "Dumbbell shrug", "Traps", false, 2, "10-12", "Light-Medium", "60 sec"),
-  ]),
-  mkDay("sday3", "اليوم 3", "الجسم الكامل ج", "أساس الجسم الكامل", [
-    ex("s3e1", "Leg press", "Quads", false, 3, "10-12", "Medium", "90 sec"),
-    ex("s3e2", "Incline dumbbell press", "Chest", false, 3, "10-12", "Light-Medium", "90 sec"),
-    ex("s3e3", "Seated cable row (wide grip)", "Back", false, 3, "10-12", "Medium", "90 sec"),
-    ex("s3e4", "Bicep curl", "Biceps", false, 2, "10-12", "Light-Medium", "60 sec"),
-    ex("s3e5", "Triceps pushdown", "Triceps", false, 2, "10-12", "Light-Medium", "60 sec"),
-  ]),
-];
-
-const GENERAL_DAYS = [
-  mkDay("gday1", "اليوم 1", "سفلي أ", "متوازن — بدون تركيز جمالي", [
-    ex("g1e1", "Back squat", "Quads / glutes", false, 3, "6-8", "Heavy", "2.5 min"),
-    ex("g1e2", "Leg curl", "Hamstrings", false, 3, "10-12", "Medium", "90 sec"),
-    ex("g1e3", "Leg press", "Quads", false, 3, "10-15", "Medium", "90 sec"),
-    ex("g1e4", "Standing calf raise", "Calves", false, 3, "12-15", "Medium", "60 sec"),
-    ex("g1e5", "Cable crunch", "Core", false, 3, "12-15", "Medium", "60 sec"),
-  ]),
-  mkDay("gday2", "اليوم 2", "علوي أ", "متوازن — بدون تركيز جمالي", [
-    ex("g2e1", "Flat bench press", "Chest", false, 3, "6-8", "Heavy", "2.5 min"),
-    ex("g2e2", "Seated cable row", "Back", false, 3, "8-12", "Medium-Heavy", "90 sec"),
-    ex("g2e3", "Overhead press", "Delts", false, 3, "8-10", "Medium", "90 sec"),
-    ex("g2e4", "Lat pulldown", "Back", false, 3, "10-12", "Medium", "90 sec"),
-    ex("g2e5", "EZ bar curl", "Biceps", false, 2, "10-12", "Medium", "60 sec"),
-  ]),
-  mkDay("gday3", "اليوم 3", "سفلي ب", "متوازن — بدون تركيز جمالي", [
-    ex("g3e1", "Deadlift", "Posterior chain", false, 3, "5-6", "Heavy", "3 min"),
-    ex("g3e2", "Walking lunge", "Quads / glutes", false, 3, "10-12/leg", "Medium", "90 sec"),
-    ex("g3e3", "Leg extension", "Quads", false, 3, "12-15", "Medium", "60 sec"),
-    ex("g3e4", "Seated calf raise", "Calves", false, 3, "15-20", "Medium", "60 sec"),
-    ex("g3e5", "Hanging leg raise", "Core", false, 3, "10-15", "Medium", "60 sec"),
-  ]),
-  mkDay("gday4", "اليوم 4", "علوي ب", "متوازن — بدون تركيز جمالي", [
-    ex("g4e1", "Incline dumbbell press", "Chest", false, 3, "8-10", "Medium-Heavy", "2 min"),
-    ex("g4e2", "Pull-up (assisted if needed)", "Back", false, 3, "6-10", "Medium-Heavy", "2 min"),
-    ex("g4e3", "Lateral raise", "Delts", false, 3, "12-15", "Light-Medium", "60 sec"),
-    ex("g4e4", "Face pull", "Rear delt", false, 3, "15-20", "Light", "60 sec"),
-    ex("g4e5", "Triceps pushdown", "Triceps", false, 2, "10-12", "Medium", "60 sec"),
+  mkDay("ul4", "اليوم 4", "سفلي ب", "الهامسترينغ، المؤخرة، السمانة، الجذع · إن أدرت 3 جلسات فقط: نفّذ 1←2←3 بالترتيب وتجاوز هذا اليوم — كل ما فيه مغطى مسبقاً في الأسبوع بحجم أقل", [
+    ex("ul4e1", "Deadlift", "Hamstrings / glutes / erectors", false, 4, "4-6", "Heavy", "3 min", ["Romanian deadlift (use if leg is still sensitive, or as a straight swap)"]),
+    ex("ul4e2", "Bulgarian split squat", "Glutes / quads", false, 3, "10-12/leg", "Medium", "90 sec", ["Walking lunge"]),
+    ex("ul4e3", "Cable kickback", "Glutes (maximus)", false, 3, "12-15/leg", "Light-Medium", "60 sec", ["Single-leg leg press, feet high"]),
+    ex("ul4e4", "Leg press calf raise", "Calves (soleus)", false, 4, "12-15", "Light-Medium", "60 sec", ["Single-leg standing calf raise (higher reps to compensate for less load)"]),
+    ex("ul4e5", "Pallof press", "Obliques", false, 3, "10-12/side", "Medium", "60 sec", ["Cable woodchop"]),
   ]),
 ];
 
 const LEVELS = [
-  { id: "starter", name: "مبتدئ", days: STARTER_DAYS, blurb: "3 أيام أسبوعياً، جسم كامل. لا حاجة لخبرة سابقة." },
-  { id: "general", name: "عام", days: GENERAL_DAYS, blurb: "4 أيام أسبوعياً، متوازن على كل العضلات، بدون تركيز معيّن." },
-  { id: "returning", name: "العودة بعد انقطاع", days: RETURNING_DAYS, blurb: "4 أيام أسبوعياً بأوزان أخف لمدة 2-4 أسابيع من التدرج." },
-  { id: "established", name: "خطة المطوّر", days: ESTABLISHED_DAYS, blurb: "4 أيام أسبوعياً — تركيز على المؤخرة والهامسترينغ والسمانة والكتفين والجذع." },
+  { id: "upperLower", name: "علوي وسفلي ×2", days: UPPER_LOWER_DAYS, blurb: "4 أيام أسبوعياً — كل عضلة مرتين أسبوعياً. مركّبات قبل تمارين العزل." },
   { id: "blank", name: "ابدأ من الصفر", days: [], blurb: "بدون أيام جاهزة — أضف أيامك وتمارينك بنفسك بالكامل." },
 ];
 
@@ -978,7 +920,7 @@ function ManageDaysModal({ days, onCancel, onSave }) {
 
 function NewPlanModal({ onCancel, onCreate }) {
   const [name, setName] = useState("");
-  const [levelId, setLevelId] = useState("established");
+  const [levelId, setLevelId] = useState("upperLower");
   return (
     <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/60 backdrop-blur-[2px]" onClick={onCancel}>
       <div className={sheetClass} onClick={(e) => e.stopPropagation()}>
@@ -2052,7 +1994,7 @@ function TutorialStep({ onDone, editMode }) {
 }
 
 function ChoosePlanStep({ onChoose }) {
-  const [levelId, setLevelId] = useState("established");
+  const [levelId, setLevelId] = useState("upperLower");
   return (
     <div className="flex-1 flex flex-col px-6 py-8 max-w-sm mx-auto w-full">
       <h1 className="text-2xl font-black text-ink font-display mb-1.5">اختر خطة بداية</h1>
@@ -2730,7 +2672,7 @@ export default function TrainingLog() {
     setNewPlanOpen(false); setPage("train");
   };
   const forkPlan = (source) => {
-    const p = { ...makePlan(`${source.name} (copy)`, "established", authorName || "أنت"), days: deepClone(source.days) };
+    const p = { ...makePlan(`${source.name} (copy)`, "upperLower", authorName || "أنت"), days: deepClone(source.days) };
     setPlans((prev) => [...prev, p]); setActivePlanId(p.id); setActiveDay(p.days[0].id);
     setPage("train");
   };
@@ -2773,7 +2715,7 @@ export default function TrainingLog() {
   const afterTutorial = () => { if (plans.length === 0) setOnboardStep("choosePlan"); else finishOnboard(); };
   const chooseFirstPlan = (levelId) => {
     const level = LEVELS.find((l) => l.id === levelId) || LEVELS[0];
-    const p = makePlan(level.name, levelId, level.id === "established" ? "Spirito (app creator)" : null);
+    const p = makePlan(level.name, levelId, level.id === "upperLower" ? "Spirito (app creator)" : null);
     setPlans([p]); setActivePlanId(p.id); setActiveDay(p.days[0].id);
     finishOnboard();
   };
