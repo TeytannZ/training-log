@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback, useReducer } from "react";
+import React, { useState, useEffect, useRef, useCallback, useReducer, useContext, createContext } from "react";
 import { initializeApp, getApps } from "firebase/app";
 import { getAuth, GoogleAuthProvider, signInAnonymously, linkWithPopup, onAuthStateChanged, signInWithPopup, signInWithRedirect, signOut, createUserWithEmailAndPassword, signInWithEmailAndPassword } from "firebase/auth";
 import { getFirestore, doc, getDoc, setDoc, deleteDoc, collection, query, where, getDocs, addDoc, serverTimestamp, onSnapshot, runTransaction } from "firebase/firestore";
@@ -186,12 +186,13 @@ const LEVELS = [
   { id: "general", name: "عام", days: GENERAL_DAYS, blurb: "4 أيام أسبوعياً، متوازن على كل العضلات، بدون تركيز معيّن." },
   { id: "returning", name: "العودة بعد انقطاع", days: RETURNING_DAYS, blurb: "4 أيام أسبوعياً بأوزان أخف لمدة 2-4 أسابيع من التدرج." },
   { id: "established", name: "خطة المطوّر", days: ESTABLISHED_DAYS, blurb: "4 أيام أسبوعياً — تركيز على المؤخرة والهامسترينغ والسمانة والكتفين والجذع." },
+  { id: "blank", name: "ابدأ من الصفر", days: [], blurb: "بدون أيام جاهزة — أضف أيامك وتمارينك بنفسك بالكامل." },
 ];
 
 function deepClone(obj) { return JSON.parse(JSON.stringify(obj)); }
 function makePlan(name, levelId, author) {
   const level = LEVELS.find((l) => l.id === levelId) || LEVELS[0];
-  return { id: `plan-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`, name, level: levelId, author: author || null, blockStartDate: new Date().toISOString(), days: deepClone(level.days) };
+  return { id: `plan-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`, name, level: levelId, author: author || null, blockStartDate: new Date().toISOString(), completedSessions: 0, days: deepClone(level.days) };
 }
 
 function resizeImage(file, maxDim = 800) {
@@ -272,6 +273,57 @@ async function saveProfileInfo(uid, firstName, familyName, email) {
 async function saveThemePreference(uid, theme) {
   try { await setDoc(doc(dbase, "users", uid), { theme }, { merge: true }); } catch (err) { /* best-effort */ }
 }
+async function saveTextPrefs(uid, patch) {
+  try { await setDoc(doc(dbase, "users", uid), patch, { merge: true }); } catch (err) { /* best-effort */ }
+}
+
+// ---- Editable site content ("edit content mode") ----
+// A single flat key->string doc, publicly readable so every user's UI
+// picks up admin's edits live, admin-only write. This is deliberately
+// scaffolding, not a permanent system — the intent (per the admin) is
+// to iterate on copy through this live-edit mode, then eventually have
+// the final strings baked back into source and this mechanism removed.
+const ContentContext = createContext({});
+function useT() {
+  const content = useContext(ContentContext);
+  return (key, fallback) => (content && typeof content[key] === "string" && content[key].length ? content[key] : fallback);
+}
+function subscribeSiteContent(cb) {
+  return onSnapshot(doc(dbase, "siteContent", "main"), (snap) => cb(snap.exists() ? snap.data() : {}), () => cb({}));
+}
+async function saveSiteContentKey(key, value) {
+  await setDoc(doc(dbase, "siteContent", "main"), { [key]: value }, { merge: true });
+}
+
+// Wraps one piece of editable copy. Outside edit mode it's just text.
+// In edit mode (admin-only, toggled from Admin Tools) it becomes
+// tappable — tap to edit inline, save writes straight to Firestore
+// and is live for every user immediately.
+function EditableText({ k, fallback, editMode, className, as: Tag = "p" }) {
+  const t = useT();
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState("");
+  const [saving, setSaving] = useState(false);
+  const value = t(k, fallback);
+  if (!editMode) return <Tag className={className}>{value}</Tag>;
+  if (editing) {
+    return (
+      <div className="relative rounded-xl ring-2 ring-charge p-2 bg-charge-soft/40">
+        <textarea autoFocus value={draft} onChange={(e) => setDraft(e.target.value)} className={inputClass + " resize-none text-sm"} rows={3} />
+        <div className="flex gap-2 mt-1.5">
+          <button disabled={saving} onClick={async () => { setSaving(true); try { await saveSiteContentKey(k, draft); } catch (err) { /* stays in edit mode on failure */ } setSaving(false); setEditing(false); }} className="px-3 py-1.5 rounded-lg text-xs font-bold bg-charge text-paper disabled:opacity-50">{saving ? "…" : "حفظ"}</button>
+          <button disabled={saving} onClick={() => setEditing(false)} className="px-3 py-1.5 rounded-lg text-xs font-bold text-ink-faint border border-line">إلغاء</button>
+        </div>
+      </div>
+    );
+  }
+  return (
+    <button onClick={() => { setDraft(value); setEditing(true); }} className="relative text-right w-full group rounded-xl outline-dashed outline-1 outline-charge/40 hover:outline-charge transition-colors">
+      <Tag className={className}>{value}</Tag>
+      <span className="absolute -top-2 -left-2 w-5 h-5 rounded-full bg-charge text-paper flex items-center justify-center opacity-80 group-hover:opacity-100 shrink-0"><Pencil className="w-2.5 h-2.5" /></span>
+    </button>
+  );
+}
 
 // ---- Themes ----
 // Each theme is a full CSS variable set (colors, fonts, radius) scoped
@@ -281,11 +333,42 @@ const THEMES = [
   { id: "equipment", name: "غرفة المعدات", desc: "داكن، نحاسي، الافتراضي" },
   { id: "studio", name: "استوديو", desc: "فاتح، هادئ، أنيق" },
   { id: "arcade", name: "أركيد", desc: "تباين عالٍ، أخضر نيون" },
+  { id: "notebook", name: "دفتر", desc: "دافئ، ورقي، مستدير" },
+  { id: "desert", name: "صحراء", desc: "ترابي، دافئ، فخم" },
 ];
+const THEME_SWATCH = {
+  equipment: "bg-[#100f0d] border border-[#d9a441]",
+  studio: "bg-[#faf7f0] border border-[#9c5a1f]",
+  arcade: "bg-[#060a06] border border-[#5ee85e]",
+  notebook: "bg-[#f7ecd9] border border-[#b5652f]",
+  desert: "bg-[#2b1710] border border-[#e0964a]",
+};
 const THEME_KEY = "training-log-theme";
 function applyTheme(id) {
   if (typeof document !== "undefined") document.documentElement.dataset.theme = id;
 }
+
+// ---- Text settings (size / weight / font family) ----
+// Independent of theme — a person can be on Studio and still want
+// larger, bolder text, or the plain default font instead of Studio's
+// serif display face. Applied the same way as theme: data-attributes
+// on <html>, read by index.css.
+const TEXT_SIZES = [
+  { id: "small", name: "صغير" },
+  { id: "normal", name: "عادي" },
+  { id: "large", name: "كبير" },
+];
+const TEXT_FONTS = [
+  { id: "default", name: "افتراضي — بحسب المظهر" },
+  { id: "simple", name: "مبسّط — خط واحد للكل" },
+  { id: "mono", name: "تقني — أرقام وحروف متساوية" },
+];
+const TEXT_SIZE_KEY = "training-log-text-size";
+const TEXT_BOLD_KEY = "training-log-text-bold";
+const TEXT_FONT_KEY = "training-log-text-font";
+function applyTextSize(id) { if (typeof document !== "undefined") document.documentElement.dataset.textSize = id; }
+function applyTextBold(on) { if (typeof document !== "undefined") document.documentElement.dataset.textBold = on ? "true" : "false"; }
+function applyTextFont(id) { if (typeof document !== "undefined") document.documentElement.dataset.font = id; }
 
 // ---- Admins ----
 // There's no backend here (no Cloud Functions), so admin status can't be a
@@ -325,6 +408,23 @@ async function fetchCommunityPlans() {
   const q = query(collection(dbase, "sharedPlans"), where("visibility", "==", "public"), where("approved", "==", true));
   const snap = await getDocs(q);
   return snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+}
+// Ratings live in a subcollection (one doc per rater) rather than a
+// maintained sum/count on the parent doc — that would need either a
+// transaction on every rate (contention as more people rate the same
+// plan) or a Cloud Function, and collections this small don't need
+// either; computing the average from the raw docs is cheap and simple.
+async function fetchRatingSummary(planId) {
+  const snap = await getDocs(collection(dbase, "sharedPlans", planId, "ratings"));
+  const values = snap.docs.map((d) => d.data().value).filter((v) => typeof v === "number");
+  const count = values.length;
+  return { avg: count ? values.reduce((a, b) => a + b, 0) / count : 0, count };
+}
+async function fetchMyRating(planId, uid) {
+  try { const snap = await getDoc(doc(dbase, "sharedPlans", planId, "ratings", uid)); return snap.exists() ? snap.data().value : null; } catch (err) { return null; }
+}
+async function rateSharedPlan(planId, uid, value) {
+  await setDoc(doc(dbase, "sharedPlans", planId, "ratings", uid), { value, updatedAt: serverTimestamp() }, { merge: true });
 }
 async function submitPlanForReview(plan, uid, name, description) {
   const clean = cleanPlanForSharing(plan);
@@ -414,7 +514,25 @@ function subscribeAllThreads(cb, onError) {
   }, (err) => { console.error("threads listener failed:", err); onError?.(err); });
 }
 async function markThreadSeen(uid, role) {
-  try { await setDoc(doc(dbase, "threads", uid), role === "admin" ? { unreadForAdmin: false } : { unreadForUser: false }, { merge: true }); } catch (err) { /* best-effort */ }
+  try {
+    await setDoc(doc(dbase, "threads", uid), role === "admin"
+      ? { unreadForAdmin: false, lastSeenByAdmin: serverTimestamp() }
+      : { unreadForUser: false, lastSeenByUser: serverTimestamp() }, { merge: true });
+  } catch (err) { /* best-effort */ }
+}
+// Typing indicator — a timestamp rather than a plain boolean, so a
+// stale "still typing" state (tab closed mid-type, etc.) ages out on
+// its own instead of getting stuck forever; the reader treats
+// anything older than a few seconds as "not typing" (see isTypingNow).
+async function setTyping(uid, role, isTyping) {
+  try {
+    await setDoc(doc(dbase, "threads", uid), role === "admin"
+      ? { adminTyping: isTyping ? serverTimestamp() : null }
+      : { userTyping: isTyping ? serverTimestamp() : null }, { merge: true });
+  } catch (err) { /* best-effort */ }
+}
+function isTypingNow(ts, now) {
+  return !!ts?.seconds && now - ts.seconds < 5;
 }
 async function adminArchiveThread(uid, archived) {
   await setDoc(doc(dbase, "threads", uid), { archivedByAdmin: archived }, { merge: true });
@@ -504,19 +622,32 @@ function PlateBadge({ weight, size = "sm" }) {
 // competition bumper plates. A vertical list, not a squeezed row — every
 // tier keeps its full name AND its rep range legible on a phone screen,
 // nothing gets hidden past a breakpoint.
-function PlateLegend() {
+// Small reusable "؟" affordance — tap to reveal a short explanation
+// inline. Used anywhere a label alone might not be self-explanatory
+// (skippable during onboarding, easy to forget later).
+function InfoButton({ text }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="mb-2">
+      <button onClick={() => setOpen((v) => !v)} className="w-5 h-5 rounded-full bg-mist text-ink-faint hover:text-charge hover:bg-charge-soft flex items-center justify-center text-[10px] font-black shrink-0 transition-colors" aria-label="معلومات">؟</button>
+      {open && <p className="text-xs text-ink-soft leading-relaxed bg-mist rounded-xl px-3 py-2.5 mt-2">{text}</p>}
+    </div>
+  );
+}
+
+function PlateLegend({ editMode }) {
   const [infoOpen, setInfoOpen] = useState(false);
   return (
     <div className="mb-5 rounded-2xl border border-line bg-card px-4 py-3.5">
       <button onClick={() => setInfoOpen((v) => !v)} className="flex items-center gap-1.5 mb-3 w-full">
         <Dumbbell className="w-3.5 h-3.5 text-ink-faint shrink-0" />
-        <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-ink-faint flex-1 text-right">دليل الأوزان — الحمل من النظرة الأولى</p>
+        <EditableText k="weightGuide.title" fallback="دليل الأوزان — الحمل من النظرة الأولى" editMode={editMode} className="text-[11px] font-bold uppercase tracking-[0.14em] text-ink-faint flex-1 text-right" />
         <span className="w-4 h-4 rounded-full bg-mist text-ink-faint flex items-center justify-center text-[10px] font-black shrink-0">؟</span>
       </button>
       {infoOpen && (
-        <p className="text-xs text-ink-soft leading-relaxed bg-mist rounded-xl px-3 py-2.5 mb-3">
-          تُصنَّف حسب آخر تكرار تقدر تؤديه بهذا الوزن كحد أقصى، بحيث لا تقدر تزيد أي تكرار بعد هذا العدد.
-        </p>
+        <div className="mb-3">
+          <EditableText k="weightGuide.info" fallback="تُصنَّف حسب آخر تكرار تقدر تؤديه بهذا الوزن كحد أقصى، بحيث لا تقدر تزيد أي تكرار بعد هذا العدد." editMode={editMode} className="text-xs text-ink-soft leading-relaxed bg-mist rounded-xl px-3 py-2.5" />
+        </div>
       )}
       <div className="space-y-1.5">
         {WEIGHT_OPTIONS.map((w) => (
@@ -598,9 +729,11 @@ function parseYoutubeId(url) {
   return m ? m[1] : (/^[\w-]{11}$/.test(url.trim()) ? url.trim() : null);
 }
 
-function ExerciseModal({ initial, onCancel, onSave, title }) {
+function ExerciseModal({ initial, onCancel, onSave, title, isAdminUser }) {
   const [form, setForm] = useState(initial);
   const [videoUrl, setVideoUrl] = useState(initial.videoId ? `https://youtu.be/${initial.videoId}` : "");
+  const [askLibrary, setAskLibrary] = useState(false);
+  const [libraryBusy, setLibraryBusy] = useState(false);
   const set = (k) => (e) => setForm((f) => ({ ...f, [k]: e.target.value }));
   const canSave = form.name.trim().length > 0 && form.muscle.trim().length > 0 && form.reps.trim().length > 0;
   const searchUrl = `https://www.google.com/search?tbm=isch&q=${encodeURIComponent((form.name || "exercise") + " exercise proper form")}`;
@@ -609,6 +742,48 @@ function ExerciseModal({ initial, onCancel, onSave, title }) {
     if (!match) return;
     setForm((f) => ({ ...f, muscle: match.muscle, sets: match.sets, reps: match.reps, weight: match.weight, rest: match.rest, image: f.image || match.image }));
   };
+  // Admin only: if this exercise came from the shared library but got
+  // edited (muscle/sets/reps/weight/rest no longer match), saving offers
+  // the choice to push those edits back into the library too — otherwise
+  // the change stays local to this one exercise in this one plan.
+  const divergesFromLibrary = isAdminUser && match && (
+    form.muscle !== match.muscle || Number(form.sets) !== match.sets || form.reps !== match.reps || form.weight !== match.weight || form.rest !== match.rest
+  );
+  const finalize = () => onSave({ ...form, sets: Number(form.sets) || 1 });
+  const attemptSave = () => {
+    if (!canSave) return;
+    if (divergesFromLibrary) { setAskLibrary(true); return; }
+    finalize();
+  };
+  const saveWithLibraryChoice = async (pushToLibrary) => {
+    if (pushToLibrary) {
+      setLibraryBusy(true);
+      try {
+        await adminSaveLibraryEntry(slugify(form.name), {
+          name: form.name, muscle: form.muscle, sets: Number(form.sets) || 1, reps: form.reps, weight: form.weight, rest: form.rest,
+          image: form.image || match?.image || null, youtubeId: form.videoId || match?.youtubeId || null,
+        });
+      } catch (err) { /* the plan-local save still proceeds either way */ }
+      setLibraryBusy(false);
+    }
+    setAskLibrary(false);
+    finalize();
+  };
+
+  if (askLibrary) {
+    return (
+      <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/60 backdrop-blur-[2px] px-6">
+        <div className="bg-card rounded-2xl p-5 max-w-xs w-full">
+          <p className="font-bold text-ink text-sm mb-1">تحديث المكتبة القياسية أيضاً؟</p>
+          <p className="text-xs text-ink-faint mb-4">غيّرت بيانات "{match.name}" عن القيم القياسية. حدّث المكتبة ليأخذ كل اختيار مستقبلي لهذا التمرين قيمك الجديدة، أو اتركها فقط في هذا التمرين.</p>
+          <div className="flex flex-col gap-2">
+            <button disabled={libraryBusy} onClick={() => saveWithLibraryChoice(true)} className="w-full py-2.5 rounded-xl text-sm font-bold bg-charge text-paper disabled:opacity-50">{libraryBusy ? "جارٍ التحديث…" : "تحديث المكتبة"}</button>
+            <button disabled={libraryBusy} onClick={() => saveWithLibraryChoice(false)} className="w-full py-2.5 rounded-xl text-sm font-bold text-ink-faint border border-line">هنا فقط، ليس المكتبة</button>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/60 backdrop-blur-[2px]" onClick={onCancel}>
@@ -672,7 +847,7 @@ function ExerciseModal({ initial, onCancel, onSave, title }) {
         </div>
         <div className="sticky bottom-0 bg-card flex items-center gap-2 px-5 py-4 border-t border-line">
           <button onClick={onCancel} className="flex-1 py-3.5 rounded-xl text-base font-bold text-ink-soft hover:bg-mist">إلغاء</button>
-          <button disabled={!canSave} onClick={() => canSave && onSave({ ...form, sets: Number(form.sets) || 1 })} className="flex-1 py-3.5 rounded-xl text-base font-bold bg-charge text-paper disabled:opacity-30 flex items-center justify-center gap-1.5 hover:bg-charge-strong transition-colors"><Check className="w-4 h-4" /> حفظ</button>
+          <button disabled={!canSave} onClick={attemptSave} className="flex-1 py-3.5 rounded-xl text-base font-bold bg-charge text-paper disabled:opacity-30 flex items-center justify-center gap-1.5 hover:bg-charge-strong transition-colors"><Check className="w-4 h-4" /> حفظ</button>
         </div>
       </div>
     </div>
@@ -932,6 +1107,12 @@ function ShareModal({ plan, user, authorName, onCancel, onPatchPlan }) {
     try { await updateSharedPlanContent(plan.publicShareId, plan, description, announce); setPubState("sent"); }
     catch (err) { setPubState("error"); }
   };
+  const withdrawPublic = async () => {
+    if (!plan.publicShareId) return;
+    setPubState("sending");
+    try { await stopSharingPlan(plan.publicShareId); onPatchPlan({ publicShareId: null, publicApproved: null }); setPubState("idle"); }
+    catch (err) { setPubState("error"); }
+  };
 
   const generateCode = async () => {
     setCodeState("sending");
@@ -987,16 +1168,19 @@ function ShareModal({ plan, user, authorName, onCancel, onPatchPlan }) {
             {!isLive && <p className="text-xs text-ink-faint mb-3">يرسل "{plan.name}" للمراجعة. تظهر للجميع بعد الموافقة. الصور غير مضمّنة، فقط قائمة التمارين.</p>}
             {isLive ? (
               <>
-                <div className="rounded-xl bg-charge-soft border border-charge/20 p-3 text-sm text-charge flex items-center gap-2 mb-3"><Check className="w-4 h-4 shrink-0" /> منشورة بالفعل — أي تعديل الآن يُحدّث نفس النسخة.</div>
+                <div className="rounded-xl bg-charge-soft border border-charge/20 p-3 text-sm text-charge flex items-center gap-2 mb-3"><Check className="w-4 h-4 shrink-0" /> {plan.publicApproved ? "منشورة بالفعل — أي تعديل الآن يُحدّث نفس النسخة." : "أُرسلت وبانتظار المراجعة."}</div>
                 <label className="flex items-center gap-2.5 text-sm text-ink-soft cursor-pointer w-fit py-1 mb-2">
                   <input type="checkbox" checked={announce} onChange={(e) => setAnnounce(e.target.checked)} className="w-4 h-4 rounded border-line accent-charge" />
                   إظهار شارة "تم التحديث" للمستخدمين
                 </label>
                 {pubState === "error" && <p className="text-xs text-danger mb-2">حدث خطأ ما — حاول مرة أخرى.</p>}
                 {pubState === "sent" && <p className="text-xs text-charge mb-2">تم التحديث.</p>}
-                <button disabled={pubState === "sending"} onClick={pushUpdate} className="w-full py-3 rounded-xl text-sm font-bold bg-mist text-ink hover:bg-line/60 disabled:opacity-40 transition-colors">
-                  {pubState === "sending" ? "جارٍ التحديث…" : "دفع التعديلات"}
-                </button>
+                <div className="flex gap-2">
+                  <button disabled={pubState === "sending"} onClick={pushUpdate} className="flex-1 py-3 rounded-xl text-sm font-bold bg-mist text-ink hover:bg-line/60 disabled:opacity-40 transition-colors">
+                    {pubState === "sending" ? "جارٍ التحديث…" : "دفع التعديلات"}
+                  </button>
+                  <button disabled={pubState === "sending"} onClick={withdrawPublic} className="px-4 py-3 rounded-xl text-sm font-bold text-danger border border-danger/30 hover:bg-danger-soft disabled:opacity-40 transition-colors">سحب</button>
+                </div>
               </>
             ) : (
               <>
@@ -1185,7 +1369,7 @@ function ExerciseLibraryAdmin() {
   );
 }
 
-function AdminPanel({ user }) {
+function AdminPanel({ user, contentEditMode, onToggleContentEditMode, onPreviewTutorial }) {
   const [pending, setPending] = useState(null);
   const [live, setLive] = useState(null);
   const [busyId, setBusyId] = useState(null);
@@ -1213,12 +1397,32 @@ function AdminPanel({ user }) {
         <span className="shrink-0 text-xs font-bold text-charge">{copied ? "تم النسخ" : "نسخ"}</span>
       </button>
 
+      <div className="rounded-2xl border border-line bg-card p-4">
+        <div className="flex items-center justify-between gap-2 mb-1">
+          <span className="font-bold text-ink text-sm">وضع تعديل النصوص</span>
+          <button onClick={onToggleContentEditMode} className={`relative w-11 h-6 rounded-full transition-colors shrink-0 ${contentEditMode ? "bg-charge" : "bg-mist"}`} aria-label="تبديل وضع تعديل النصوص">
+            <span className={`absolute top-0.5 w-5 h-5 rounded-full bg-white transition-all ${contentEditMode ? "right-0.5" : "right-5"}`} />
+          </button>
+        </div>
+        <p className="text-xs text-ink-faint mb-3">عند التفعيل، أي نص قابل للتعديل في التطبيق (دليل الأوزان، تنبيه تغيير التمارين، الدردشة) يظهر بحدود منقّطة — اضغط عليه لتعديله. التغييرات تُنشر فوراً للجميع.</p>
+        <button onClick={onPreviewTutorial} className="w-full flex items-center justify-between gap-2 bg-mist rounded-xl px-3.5 py-2.5 hover:bg-line/40 transition-colors">
+          <span className="text-sm font-bold text-ink">معاينة الشرح التعليمي وتعديله</span>
+          <ChevronRight className="w-3.5 h-3.5 text-ink-faint rotate-180" />
+        </button>
+      </div>
+
       <ExerciseLibraryAdmin />
 
       {(loadErr || actionErr) && (
         <div className="rounded-2xl border border-danger/40 bg-danger-soft p-3.5">
           <p className="text-xs font-bold text-danger mb-1">{actionErr ? "فشل الإجراء:" : "فشل التحميل:"}</p>
-          <p className="text-xs text-danger font-mono break-words">{actionErr || loadErr}</p>
+          <p className="text-xs text-danger font-mono break-words mb-1.5">{actionErr || loadErr}</p>
+          <p className="text-[10px] text-danger/70 font-mono break-all">uid: {user.uid}</p>
+          {String(actionErr || loadErr).toLowerCase().includes("permission") && (
+            <p className="text-[11px] text-danger/90 mt-1.5">
+              خطأ صلاحيات رغم أنك أدمن؟ الأرجح أن قواعد Firestore المنشورة في Firebase Console ليست آخر نسخة — افتح Firestore Database ← Rules، تأكد أن المحتوى مطابق لملف firestore.rules، ثم اضغط Publish من جديد (حتى لو بدا مطابقاً) وانتظر دقيقة.
+            </p>
+          )}
         </div>
       )}
 
@@ -1270,9 +1474,35 @@ function AdminPanel({ user }) {
   );
 }
 
-function CommunityPage({ onFork, isOnline }) {
+function StarRating({ value, count, myRating, onRate, interactive }) {
+  const [hover, setHover] = useState(0);
+  const display = hover || myRating || 0;
+  return (
+    <div className="flex items-center gap-2">
+      <div className="flex items-center gap-0.5" onMouseLeave={() => setHover(0)}>
+        {[1, 2, 3, 4, 5].map((n) => (
+          <button
+            key={n}
+            type="button"
+            disabled={!interactive}
+            onMouseEnter={() => interactive && setHover(n)}
+            onClick={() => interactive && onRate(n)}
+            className={interactive ? "cursor-pointer active:scale-90 transition-transform" : "cursor-default"}
+            aria-label={`${n} نجوم`}
+          >
+            <Star className={`w-3.5 h-3.5 ${n <= (interactive ? display : Math.round(value)) ? "text-charge fill-charge" : "text-ink-faint"}`} />
+          </button>
+        ))}
+      </div>
+      {count > 0 && <span className="text-[11px] text-ink-faint">{value.toFixed(1)} ({count})</span>}
+    </div>
+  );
+}
+
+function CommunityPage({ onFork, isOnline, user, canEdit }) {
   const [state, setState] = useState("loading");
   const [items, setItems] = useState([]);
+  const [ratings, setRatings] = useState({}); // planId -> { avg, count, mine }
   useEffect(() => {
     if (!isOnline) { setState("offline"); return; }
     (async () => {
@@ -1280,9 +1510,25 @@ function CommunityPage({ onFork, isOnline }) {
         const data = await fetchCommunityPlans();
         data.sort((a, b) => (b.recommended ? 1 : 0) - (a.recommended ? 1 : 0));
         if (data.length) { setItems(data); setState("ok"); } else setState("empty");
+        // Ratings load in the background, per plan — the list itself
+        // renders immediately without waiting on them.
+        data.forEach(async (p) => {
+          try {
+            const summary = await fetchRatingSummary(p.id);
+            const mine = canEdit && user ? await fetchMyRating(p.id, user.uid) : null;
+            setRatings((r) => ({ ...r, [p.id]: { ...summary, mine } }));
+          } catch (err) { /* rating is a nice-to-have, never blocks the list */ }
+        });
       } catch (err) { setState("empty"); }
     })();
   }, [isOnline]);
+
+  const rate = async (planId, value) => {
+    setRatings((r) => ({ ...r, [planId]: { ...(r[planId] || { avg: 0, count: 0 }), mine: value } })); // optimistic
+    try { await rateSharedPlan(planId, user.uid, value); const summary = await fetchRatingSummary(planId); setRatings((r) => ({ ...r, [planId]: { ...summary, mine: value } })); }
+    catch (err) { /* the optimistic star stays even if the background refresh fails — harmless */ }
+  };
+
   return (
     <div className="space-y-3">
       <h1 className="text-3xl font-black tracking-tight text-ink font-display">المجتمع</h1>
@@ -1290,22 +1536,33 @@ function CommunityPage({ onFork, isOnline }) {
       {state === "offline" && <p className="text-sm text-ink-faint text-center py-10">أنت غير متصل — خطط المجتمع تحتاج اتصالاً بالإنترنت.</p>}
       {state === "loading" && <div className="flex items-center gap-2 text-ink-faint text-sm py-10 justify-center"><Loader2 className="w-4 h-4 animate-spin" /> جارٍ التحميل…</div>}
       {state === "empty" && <p className="text-sm text-ink-faint text-center py-10">لا توجد خطط موافق عليها بعد — تحقق لاحقاً.</p>}
-      {items.map((p) => (
-        <div key={p.id} className={`rounded-2xl border bg-card p-4 ${p.recommended ? "border-charge/50" : "border-line"}`}>
-          <div className="flex items-center justify-between gap-3">
-            <div className="min-w-0">
-              <div className="flex items-center gap-1.5">
-                {p.recommended && <Star className="w-3.5 h-3.5 text-charge fill-charge shrink-0" />}
-                <p className="font-black text-ink truncate">{p.name}</p>
-                {p.announced && <span className="shrink-0 text-[10px] font-bold text-w4-strong bg-w4-soft rounded-full px-2 py-0.5">مُحدّثة</span>}
+      {items.map((p) => {
+        const r = ratings[p.id];
+        return (
+          <div key={p.id} className={`rounded-2xl border bg-card p-4 ${p.recommended ? "border-charge/50" : "border-line"}`}>
+            <div className="flex items-center justify-between gap-3">
+              <div className="min-w-0">
+                <div className="flex items-center gap-1.5">
+                  {p.recommended && <Star className="w-3.5 h-3.5 text-charge fill-charge shrink-0" />}
+                  <p className="font-black text-ink truncate">{p.name}</p>
+                  {p.announced && <span className="shrink-0 text-[10px] font-bold text-w4-strong bg-w4-soft rounded-full px-2 py-0.5">مُحدّثة</span>}
+                </div>
+                <p className="text-sm text-ink-faint">بواسطة {p.author || "مجهول"} · {p.days?.length || 0} أيام/أسبوع</p>
               </div>
-              <p className="text-sm text-ink-faint">بواسطة {p.author || "مجهول"} · {p.days?.length || 0} أيام/أسبوع</p>
+              <button onClick={() => onFork(p)} className="shrink-0 px-3.5 py-2.5 rounded-xl text-sm font-bold bg-charge text-paper hover:bg-charge-strong transition-colors flex items-center gap-1.5"><Copy className="w-4 h-4" /> نسخ</button>
             </div>
-            <button onClick={() => onFork(p)} className="shrink-0 px-3.5 py-2.5 rounded-xl text-sm font-bold bg-charge text-paper hover:bg-charge-strong transition-colors flex items-center gap-1.5"><Copy className="w-4 h-4" /> نسخ</button>
+            {p.description && <p className="text-sm text-ink-soft mt-2.5 pt-2.5 border-t border-line">{p.description}</p>}
+            <div className="mt-2.5 pt-2.5 border-t border-line flex items-center justify-between">
+              <StarRating value={r?.avg || 0} count={r?.count || 0} />
+              {canEdit ? (
+                <StarRating value={0} count={0} myRating={r?.mine} interactive onRate={(v) => rate(p.id, v)} />
+              ) : (
+                <span className="text-[11px] text-ink-faint">سجّل الدخول للتقييم</span>
+              )}
+            </div>
           </div>
-          {p.description && <p className="text-sm text-ink-soft mt-2.5 pt-2.5 border-t border-line">{p.description}</p>}
-        </div>
-      ))}
+        );
+      })}
     </div>
   );
 }
@@ -1330,16 +1587,16 @@ function dayLabel(seconds) {
   return d.toLocaleDateString("ar", { day: "numeric", month: "long" });
 }
 
-function ChatBubble({ msg, mine, status }) {
+function ChatBubble({ msg, mine, status, seen }) {
   const seconds = msg.createdAt?.seconds || (msg.ts ? Math.floor(msg.ts / 1000) : null);
   return (
     <div dir="ltr" className="flex tl-bubble-in" style={{ justifyContent: mine ? "flex-end" : "flex-start" }}>
       <div className="max-w-[78%]">
         <div
           dir="rtl"
-          className={`rounded-2xl px-3.5 py-2.5 text-sm leading-relaxed shadow-sm transition-opacity duration-300 ${
+          className={`rounded-2xl px-3.5 py-2.5 text-sm leading-relaxed shadow-sm ${
             mine ? "bg-charge text-paper rounded-br-md" : "bg-card border border-line text-ink rounded-bl-md"
-          } ${status === "pending" ? "opacity-55" : "opacity-100"}`}
+          } ${status === "error" ? "opacity-70" : "opacity-100"}`}
         >
           {msg.image && <img src={msg.image} alt="" className="w-40 h-40 rounded-xl object-cover mb-1.5" />}
           {msg.body && <p className="whitespace-pre-wrap break-words">{msg.body}</p>}
@@ -1348,13 +1605,32 @@ function ChatBubble({ msg, mine, status }) {
               <Share className="w-3 h-3" /> رابط مرفق
             </a>
           )}
-          {seconds && (
-            <p dir="rtl" className={`text-[10px] mt-1 ${mine ? "text-paper/70" : "text-ink-faint"}`}>
-              {fmtBubbleTime(seconds)}{status === "pending" && " · جارٍ الإرسال"}
+          {(seconds || status === "error") && (
+            <p dir="rtl" className={`text-[10px] mt-1 flex items-center gap-1 ${mine ? "text-paper/70" : "text-ink-faint"} ${status === "error" ? "text-left" : ""}`}>
+              {status === "error" ? (
+                <span className="inline-flex items-center gap-1 text-white"><AlertTriangle className="w-2.5 h-2.5" /> تعذّر الإرسال — اضغط لإعادة المحاولة</span>
+              ) : (
+                <>
+                  {fmtBubbleTime(seconds)}
+                  {mine && (seen ? <Check className="w-3 h-3 -mr-1" strokeWidth={3} /> : <Check className="w-3 h-3 opacity-60" strokeWidth={2.5} />)}
+                  {mine && seen && <Check className="w-3 h-3 -mr-2.5" strokeWidth={3} />}
+                </>
+              )}
             </p>
           )}
         </div>
-        {status === "error" && <p dir="rtl" className="text-[11px] text-danger mt-1 text-left">تعذّر الإرسال — اضغط لإعادة المحاولة</p>}
+      </div>
+    </div>
+  );
+}
+
+function TypingIndicator() {
+  return (
+    <div dir="ltr" className="flex tl-bubble-in" style={{ justifyContent: "flex-start" }}>
+      <div dir="rtl" className="bg-card border border-line rounded-2xl rounded-bl-md px-4 py-3 flex items-center gap-1">
+        <span className="w-1.5 h-1.5 rounded-full bg-ink-faint animate-bounce" style={{ animationDelay: "0ms" }} />
+        <span className="w-1.5 h-1.5 rounded-full bg-ink-faint animate-bounce" style={{ animationDelay: "150ms" }} />
+        <span className="w-1.5 h-1.5 rounded-full bg-ink-faint animate-bounce" style={{ animationDelay: "300ms" }} />
       </div>
     </div>
   );
@@ -1364,6 +1640,8 @@ function ChatThread({ threadUid, viewerRole, peerName, rateLimitUid }) {
   const [messages, setMessages] = useState(null);
   const [loadError, setLoadError] = useState(false);
   const [pending, setPending] = useState([]); // optimistic, not-yet-synced messages
+  const [threadMeta, setThreadMeta] = useState(null);
+  const [now, setNow] = useState(() => Date.now() / 1000);
   const [body, setBody] = useState("");
   const [image, setImage] = useState(null);
   const [link, setLink] = useState("");
@@ -1371,13 +1649,19 @@ function ChatThread({ threadUid, viewerRole, peerName, rateLimitUid }) {
   const [limited, setLimited] = useState(false);
   const fileRef = useRef(null);
   const listRef = useRef(null);
+  const typingTimer = useRef(null);
+  const wasTyping = useRef(false);
 
   useEffect(() => {
     setMessages(null); setLoadError(false); setPending([]);
     const unsub = subscribeThreadMessages(threadUid, (items) => { setMessages(items); setLoadError(false); }, () => setLoadError(true));
+    const unsubMeta = subscribeThread(threadUid, setThreadMeta);
     markThreadSeen(threadUid, viewerRole);
-    return () => unsub();
+    return () => { unsub(); unsubMeta(); };
   }, [threadUid, viewerRole]);
+
+  // typing indicators age out after 5s, so a tick keeps that decision fresh
+  useEffect(() => { const t = setInterval(() => setNow(Date.now() / 1000), 2000); return () => clearInterval(t); }, []);
 
   useEffect(() => {
     // once a real synced message with a matching clientId shows up, the
@@ -1395,11 +1679,26 @@ function ChatThread({ threadUid, viewerRole, peerName, rateLimitUid }) {
     if (listRef.current) listRef.current.scrollTop = listRef.current.scrollHeight;
   }, [messages, pending, threadUid, viewerRole]);
 
+  useEffect(() => () => { if (wasTyping.current) setTyping(threadUid, viewerRole, false); }, [threadUid, viewerRole]);
+
+  const onType = (v) => {
+    setBody(v);
+    if (!wasTyping.current) { wasTyping.current = true; setTyping(threadUid, viewerRole, true); }
+    clearTimeout(typingTimer.current);
+    typingTimer.current = setTimeout(() => { wasTyping.current = false; setTyping(threadUid, viewerRole, false); }, 2500);
+  };
+
   const send = async () => {
     if (!body.trim() && !image) return;
+    clearTimeout(typingTimer.current);
+    wasTyping.current = false; setTyping(threadUid, viewerRole, false);
     const clientId = `c${Date.now()}${Math.random().toString(36).slice(2, 8)}`;
     const draft = { clientId, from: viewerRole, body: body.trim(), image, link: link.trim() || null, ts: Date.now() };
-    setPending((p) => [...p, { ...draft, status: "pending" }]);
+    // Optimistic: the bubble appears instantly at full opacity, exactly
+    // like a real sent message — the network round-trip happens quietly
+    // behind it. Only a failed send gets a visible marker, and even then
+    // it's a small retry tap, not a blocking error.
+    setPending((p) => [...p, { ...draft, status: "sent" }]);
     setBody(""); setImage(null); setLink(""); setLinkOpen(false); setLimited(false);
     try {
       if (viewerRole === "user") {
@@ -1408,7 +1707,9 @@ function ChatThread({ threadUid, viewerRole, peerName, rateLimitUid }) {
       }
       await sendThreadMessage(threadUid, viewerRole, peerName, draft.body, draft.image, draft.link, clientId);
       // the onSnapshot listener will deliver the real message and the
-      // effect above drops this optimistic copy once it does
+      // effect above drops this optimistic copy once it does — since
+      // both carry the same clientId and combined.map keys off it,
+      // there's no remount/flash when that handoff happens
     } catch (err) {
       setPending((p) => p.map((x) => (x.clientId === clientId ? { ...x, status: "error" } : x)));
     }
@@ -1423,6 +1724,9 @@ function ChatThread({ threadUid, viewerRole, peerName, rateLimitUid }) {
     ...(messages || []).map((m) => ({ ...m, status: "sent" })),
     ...pending,
   ].sort((a, b) => (a.createdAt?.seconds ? a.createdAt.seconds * 1000 : a.ts || 0) - (b.createdAt?.seconds ? b.createdAt.seconds * 1000 : b.ts || 0));
+
+  const otherTyping = threadMeta && isTypingNow(viewerRole === "user" ? threadMeta.adminTyping : threadMeta.userTyping, now);
+  const otherLastSeen = threadMeta ? (viewerRole === "user" ? threadMeta.lastSeenByAdmin : threadMeta.lastSeenByUser) : null;
 
   let lastDay = null;
 
@@ -1441,19 +1745,22 @@ function ChatThread({ threadUid, viewerRole, peerName, rateLimitUid }) {
           const label = seconds ? dayLabel(seconds) : null;
           const showDivider = label && label !== lastDay;
           if (showDivider) lastDay = label;
+          const mine = m.from === viewerRole;
+          const seen = mine && seconds && otherLastSeen?.seconds && otherLastSeen.seconds >= seconds;
           return (
-            <React.Fragment key={m.id || m.clientId}>
+            <React.Fragment key={m.clientId || m.id}>
               {showDivider && (
                 <div className="flex items-center justify-center py-1.5">
                   <span className="text-[10px] font-bold text-ink-faint bg-card border border-line rounded-full px-3 py-1">{label}</span>
                 </div>
               )}
               <div onClick={() => m.status === "error" && retry(m)} className={m.status === "error" ? "cursor-pointer" : ""}>
-                <ChatBubble msg={m} mine={m.from === viewerRole} status={m.status} />
+                <ChatBubble msg={m} mine={mine} status={m.status} seen={seen} />
               </div>
             </React.Fragment>
           );
         })}
+        {otherTyping && <TypingIndicator />}
       </div>
 
       <div className="shrink-0 pt-2.5">
@@ -1471,15 +1778,15 @@ function ChatThread({ threadUid, viewerRole, peerName, rateLimitUid }) {
           <button onClick={() => setLinkOpen((v) => !v)} className={`p-2 rounded-full shrink-0 transition-colors ${linkOpen ? "text-charge bg-charge-soft" : "text-ink-faint hover:text-charge hover:bg-charge-soft"}`} aria-label="إرفاق رابط"><Share className="w-4 h-4" /></button>
           <textarea
             value={body}
-            onChange={(e) => setBody(e.target.value)}
+            onChange={(e) => onType(e.target.value)}
             rows={1}
             placeholder="اكتب رسالة…"
             className="tl-chat-textarea resize-none flex-1 bg-transparent text-sm text-ink placeholder:text-ink-faint focus:outline-none py-1.5 max-h-24"
             onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); } }}
           />
           {/* Sends fire-and-forget — no spinner blocking the button. The
-             bubble itself shows a subtle "sending" state (see ChatBubble),
-             so the person can keep typing the next message right away. */}
+             bubble appears instantly (see send()), so the person can
+             keep typing the next message right away. */}
           <button disabled={!body.trim() && !image} onClick={send} className="p-2.5 rounded-full bg-charge text-paper disabled:opacity-30 disabled:scale-100 hover:bg-charge-strong active:scale-90 transition-all shrink-0" aria-label="إرسال">
             <Send className="w-4 h-4" />
           </button>
@@ -1495,18 +1802,52 @@ function ChatThread({ threadUid, viewerRole, peerName, rateLimitUid }) {
 // one conversation (with the admin) so it goes straight to that
 // thread; the admin has many conversations, so it's an inbox list
 // that opens into a thread — same idea as any chat app's main screen.
-function ChatPage({ user, authorName, isAdminUser }) {
-  if (isAdminUser) return <AdminInbox />;
+//
+// The whole panel is fixed between the header and bottom nav (see
+// .tl-chat-panel in index.css), but mobile browsers don't shrink the
+// LAYOUT viewport when the keyboard opens — only the VISUAL one — so
+// a CSS-only `bottom` offset leaves a keyboard-sized gap under the
+// composer. This tracks the real visible height via the visualViewport
+// API and adjusts the panel's bottom inset live.
+function ChatPage({ user, authorName, isAdminUser, editMode }) {
+  const panelRef = useRef(null);
+  useEffect(() => {
+    const vv = window.visualViewport;
+    if (!vv || !panelRef.current) return;
+    const update = () => {
+      if (!panelRef.current) return;
+      const kb = Math.max(0, window.innerHeight - vv.height - vv.offsetTop);
+      // Below ~60px is just mobile browser chrome (address bar) showing
+      // or hiding, not a keyboard — leave the default CSS offset (which
+      // reserves room for the bottom nav) alone in that case.
+      panelRef.current.style.bottom = kb > 60 ? `${kb}px` : "";
+    };
+    vv.addEventListener("resize", update);
+    vv.addEventListener("scroll", update);
+    update();
+    return () => { vv.removeEventListener("resize", update); vv.removeEventListener("scroll", update); };
+  }, []);
+
   return (
-    <div className="flex flex-col h-full min-h-0">
-      <div className="shrink-0 flex items-center gap-2.5 pb-3 border-b border-line">
-        <div className="w-9 h-9 rounded-full bg-charge-soft text-charge flex items-center justify-center font-black shrink-0">؟</div>
-        <div className="min-w-0">
-          <p className="font-black text-ink text-sm">الدعم</p>
-          <p className="text-xs text-ink-faint">عادة ما يرد خلال يوم</p>
-        </div>
+    <div
+      ref={panelRef}
+      className="tl-chat-panel fixed inset-x-0 z-20 flex flex-col"
+      style={{ top: "3.5rem", bottom: "calc(4.5rem + env(safe-area-inset-bottom))" }}
+    >
+      <div className="max-w-2xl w-full mx-auto px-4 sm:px-6 pt-4 flex-1 min-h-0 flex flex-col">
+        {isAdminUser ? <AdminInbox /> : (
+          <>
+            <div className="shrink-0 flex items-center gap-2.5 pb-3 border-b border-line">
+              <div className="w-9 h-9 rounded-full bg-charge-soft text-charge flex items-center justify-center font-black shrink-0">؟</div>
+              <div className="min-w-0">
+                <p className="font-black text-ink text-sm">الدعم</p>
+                <EditableText k="chat.subtitle" fallback="عادة ما يرد خلال يوم" editMode={editMode} className="text-xs text-ink-faint" as="p" />
+              </div>
+            </div>
+            <ChatThread threadUid={user.uid} viewerRole="user" peerName={authorName} rateLimitUid={user.uid} />
+          </>
+        )}
       </div>
-      <ChatThread threadUid={user.uid} viewerRole="user" peerName={authorName} rateLimitUid={user.uid} />
     </div>
   );
 }
@@ -1682,12 +2023,12 @@ function AuthStep({ onGoogle, onGuest, onEmailAuth, status, error }) {
   );
 }
 
-function TutorialStep({ onDone }) {
+function TutorialStep({ onDone, editMode }) {
   const slides = [
-    { icon: Star, color: "text-charge fill-charge", bg: "bg-charge-soft", title: "عضلات التركيز", text: "النجمة تُشير إلى عضلة تركيز، وهي العضلات الأساسية التي يجب التركيز عليها." },
-    { icon: Dumbbell, color: "text-w4-strong", bg: "bg-w4-soft", title: "الأوزان وأصنافها", text: "تُصنَّف حسب آخر تكرار تقدر تؤديه بهذا الوزن كحد أقصى، بحيث لا تقدر تزيد أي تكرار بعد هذا العدد." },
-    { icon: RefreshCw, color: "text-w5-strong", bg: "bg-w5-soft", title: "تغيير التمارين", text: "بعد قرابة 6-8 أسابيع ستحصل على تذكير لتغيير عدد من التمارين لكل عضلة — مبني على أبحاث، وليس تبديلاً عشوائياً." },
-    { icon: Home, color: "text-w2-strong", bg: "bg-w2-soft", title: "بدء التمرين", text: "جلسة موجّهة بالكامل: إحماء، مجموعات، تكرارات، وأوقات راحة بعد كل مجموعة وتمرين." },
+    { key: "focus", icon: Star, color: "text-charge fill-charge", bg: "bg-charge-soft", title: "عضلات التركيز", text: "النجمة تُشير إلى عضلة تركيز، وهي العضلات الأساسية التي يجب التركيز عليها." },
+    { key: "weights", icon: Dumbbell, color: "text-w4-strong", bg: "bg-w4-soft", title: "الأوزان وأصنافها", text: "تُصنَّف حسب آخر تكرار تقدر تؤديه بهذا الوزن كحد أقصى، بحيث لا تقدر تزيد أي تكرار بعد هذا العدد." },
+    { key: "swap", icon: RefreshCw, color: "text-w5-strong", bg: "bg-w5-soft", title: "تغيير التمارين", text: "بعد قرابة 6-8 أسابيع ستحصل على تذكير لتغيير عدد من التمارين لكل عضلة — مبني على أبحاث، وليس تبديلاً عشوائياً." },
+    { key: "start", icon: Home, color: "text-w2-strong", bg: "bg-w2-soft", title: "بدء التمرين", text: "جلسة موجّهة بالكامل: إحماء، مجموعات، تكرارات، وأوقات راحة بعد كل مجموعة وتمرين." },
   ];
   const [i, setI] = useState(0);
   const slide = slides[i];
@@ -1699,12 +2040,12 @@ function TutorialStep({ onDone }) {
       </div>
       <div className="flex-1 flex flex-col items-center justify-center px-8 text-center max-w-sm mx-auto w-full">
         <div className={`w-24 h-24 rounded-3xl ${slide.bg} flex items-center justify-center mb-6`}><Icon className={`w-11 h-11 ${slide.color}`} /></div>
-        <h2 className="text-2xl font-black text-ink font-display mb-2">{slide.title}</h2>
-        <p className="text-ink-soft text-base">{slide.text}</p>
+        <EditableText k={`tutorial.${slide.key}.title`} fallback={slide.title} editMode={editMode} className="text-2xl font-black text-ink font-display mb-2" as="h2" />
+        <EditableText k={`tutorial.${slide.key}.text`} fallback={slide.text} editMode={editMode} className="text-ink-soft text-base" as="p" />
       </div>
       <div className="px-8 pb-8 max-w-sm mx-auto w-full flex gap-2">
         {i > 0 && <button onClick={() => setI((v) => v - 1)} className="px-6 py-3.5 rounded-xl text-base font-bold text-ink-soft border border-line">رجوع</button>}
-        <button onClick={() => (i < slides.length - 1 ? setI((v) => v + 1) : onDone())} className="flex-1 py-3.5 rounded-xl text-base font-bold bg-charge text-paper hover:bg-charge-strong transition-colors">{i < slides.length - 1 ? "التالي" : "ابدأ استخدام التطبيق"}</button>
+        <button onClick={() => (i < slides.length - 1 ? setI((v) => v + 1) : onDone())} className="flex-1 py-3.5 rounded-xl text-base font-bold bg-charge text-paper hover:bg-charge-strong transition-colors">{i < slides.length - 1 ? "التالي" : (editMode ? "تم" : "ابدأ استخدام التطبيق")}</button>
       </div>
     </div>
   );
@@ -1808,7 +2149,31 @@ const EXERCISE_LIBRARY = [
   { name: "Seated cable row", muscle: "Back", sets: 3, reps: "8-12", weight: "Medium", rest: "90 sec", image: null, youtubeId: null },
   { name: "EZ bar curl", muscle: "Biceps", sets: 2, reps: "10-15", weight: "Medium", rest: "60 sec", image: null, youtubeId: null },
   { name: "Bicep curl", muscle: "Biceps", sets: 2, reps: "10-12", weight: "Light-Medium", rest: "60 sec", image: null, youtubeId: null },
+  { name: "Hammer curl", muscle: "Biceps / forearms", sets: 3, reps: "10-12", weight: "Medium", rest: "60 sec", image: null, youtubeId: null },
+  { name: "Preacher curl", muscle: "Biceps", sets: 3, reps: "10-12", weight: "Medium", rest: "60 sec", image: null, youtubeId: null },
   { name: "Triceps pushdown", muscle: "Triceps", sets: 2, reps: "10-15", weight: "Medium", rest: "60 sec", image: null, youtubeId: null },
+  { name: "Overhead triceps extension", muscle: "Triceps", sets: 3, reps: "10-12", weight: "Medium", rest: "60 sec", image: null, youtubeId: null },
+  { name: "Close-grip bench press", muscle: "Triceps / chest", sets: 3, reps: "8-10", weight: "Heavy", rest: "2 min", image: null, youtubeId: null },
+  { name: "Skull crusher", muscle: "Triceps", sets: 3, reps: "10-12", weight: "Medium", rest: "60 sec", image: null, youtubeId: null },
+  { name: "Incline barbell press", muscle: "Chest (upper)", sets: 3, reps: "6-10", weight: "Heavy", rest: "2 min", image: null, youtubeId: null },
+  { name: "Cable chest fly", muscle: "Chest", sets: 3, reps: "12-15", weight: "Light-Medium", rest: "60 sec", image: null, youtubeId: null },
+  { name: "Push-up", muscle: "Chest / triceps", sets: 3, reps: "max reps", weight: "Light", rest: "60 sec", image: null, youtubeId: null },
+  { name: "Chest-supported row", muscle: "Back", sets: 3, reps: "8-12", weight: "Medium-Heavy", rest: "90 sec", image: null, youtubeId: null },
+  { name: "Barbell row", muscle: "Back", sets: 3, reps: "6-10", weight: "Heavy", rest: "2 min", image: null, youtubeId: null },
+  { name: "Single-arm dumbbell row", muscle: "Back", sets: 3, reps: "8-12/side", weight: "Medium-Heavy", rest: "90 sec", image: null, youtubeId: null },
+  { name: "Straight-arm pulldown", muscle: "Lats", sets: 3, reps: "12-15", weight: "Light-Medium", rest: "60 sec", image: null, youtubeId: null },
+  { name: "Hip thrust", muscle: "Glute max", sets: 3, reps: "8-12", weight: "Heavy", rest: "2 min", image: null, youtubeId: null },
+  { name: "Glute bridge", muscle: "Glute max", sets: 3, reps: "12-15", weight: "Medium", rest: "60 sec", image: null, youtubeId: null },
+  { name: "Cable kickback", muscle: "Glute max", sets: 3, reps: "12-15/side", weight: "Light-Medium", rest: "60 sec", image: null, youtubeId: null },
+  { name: "Goblet squat", muscle: "Quads / glute max", sets: 3, reps: "10-15", weight: "Medium", rest: "90 sec", image: null, youtubeId: null },
+  { name: "Front squat", muscle: "Quads", sets: 3, reps: "6-8", weight: "Heavy", rest: "2.5 min", image: null, youtubeId: null },
+  { name: "Hip abduction machine", muscle: "Glute medius", sets: 3, reps: "15-20", weight: "Light-Medium", rest: "45 sec", image: null, youtubeId: null },
+  { name: "Cable crunch", muscle: "Core", sets: 3, reps: "12-15", weight: "Medium", rest: "60 sec", image: null, youtubeId: null },
+  { name: "Russian twist", muscle: "Core (obliques)", sets: 3, reps: "15-20/side", weight: "Light", rest: "45 sec", image: null, youtubeId: null },
+  { name: "Ab wheel rollout", muscle: "Core", sets: 3, reps: "8-12", weight: "Medium", rest: "60 sec", image: null, youtubeId: null },
+  { name: "Arnold press", muscle: "Delts (front/side)", sets: 3, reps: "8-12", weight: "Medium", rest: "90 sec", image: null, youtubeId: null },
+  { name: "Rear delt fly", muscle: "Rear delt", sets: 3, reps: "12-15", weight: "Light", rest: "60 sec", image: null, youtubeId: null },
+  { name: "Chin-up", muscle: "Back / biceps", sets: 3, reps: "max reps", weight: "Heavy", rest: "2 min", image: null, youtubeId: null },
 ];
 // The hardcoded list above is the offline-safe seed. Once the app loads,
 // this gets merged with whatever the admin has added/fixed in Firestore
@@ -2132,7 +2497,7 @@ function WorkoutSession({ day, onExit }) {
               <h2 className="text-2xl font-black font-display mb-1.5">اكتمل اليوم!</h2>
               <p className="text-ink/50 text-sm mb-1 font-mono">{totalExercises} تمارين · {fmtClock(elapsed)}</p>
               <p className="text-ink/40 text-sm mb-6">جلسة رائعة. اذهب لترتاح.</p>
-              <button onClick={onExit} className="px-8 py-3.5 rounded-2xl text-base font-black bg-charge text-paper hover:bg-charge-strong transition-colors">إنهاء</button>
+              <button onClick={() => onExit(true)} className="px-8 py-3.5 rounded-2xl text-base font-black bg-charge text-paper hover:bg-charge-strong transition-colors">إنهاء</button>
             </>
           )}
         </div>
@@ -2253,7 +2618,13 @@ export default function TrainingLog() {
   const [syncError, setSyncError] = useState(false);
   const [isOnline, setIsOnline] = useState(typeof navigator === "undefined" ? true : navigator.onLine);
   const [theme, setTheme] = useState("equipment");
+  const [textSize, setTextSize] = useState("normal");
+  const [textBold, setTextBold] = useState(false);
+  const [textFont, setTextFont] = useState("default");
   const [adminToolsOpen, setAdminToolsOpen] = useState(false);
+  const [siteContent, setSiteContent] = useState({});
+  const [contentEditMode, setContentEditMode] = useState(false);
+  const [tutorialPreviewOpen, setTutorialPreviewOpen] = useState(false);
   const fileInputRef = useRef(null);
   const pushTimer = useRef(null);
   const pwa = usePwaInstall();
@@ -2291,6 +2662,9 @@ export default function TrainingLog() {
       try { const ob = await window.storage.get(ONBOARD_KEY, false); setOnboardStep(ob?.value ? "done" : "language"); } catch (err) { setOnboardStep("language"); }
       try { mergeRemoteLibrary(await fetchExerciseLibrary()); } catch (err) { /* offline or none yet — the hardcoded seed still works fine */ }
       try { const t = await window.storage.get(THEME_KEY, false); if (t?.value && THEMES.some((th) => th.id === t.value)) { setTheme(t.value); applyTheme(t.value); } } catch (err) { /* default theme */ }
+      try { const s = await window.storage.get(TEXT_SIZE_KEY, false); if (s?.value) { setTextSize(s.value); applyTextSize(s.value); } } catch (err) { /* default size */ }
+      try { const b = await window.storage.get(TEXT_BOLD_KEY, false); if (b?.value) { setTextBold(true); applyTextBold(true); } } catch (err) { /* default weight */ }
+      try { const f = await window.storage.get(TEXT_FONT_KEY, false); if (f?.value) { setTextFont(f.value); applyTextFont(f.value); } } catch (err) { /* default font */ }
       setLoaded(true);
     })();
 
@@ -2307,6 +2681,9 @@ export default function TrainingLog() {
           if (remote?.firstName) setProfileName(`${remote.firstName} ${remote.familyName || ""}`.trim());
           if (!remote?.firstName) setNeedsName(true);
           if (remote?.theme && THEMES.some((th) => th.id === remote.theme)) { setTheme(remote.theme); applyTheme(remote.theme); }
+          if (remote?.textSize) { setTextSize(remote.textSize); applyTextSize(remote.textSize); }
+          if (typeof remote?.textBold === "boolean") { setTextBold(remote.textBold); applyTextBold(remote.textBold); }
+          if (remote?.textFont) { setTextFont(remote.textFont); applyTextFont(remote.textFont); }
         } catch (err) { /* fall back to local */ }
       }
       setRemoteChecked(true);
@@ -2365,7 +2742,7 @@ export default function TrainingLog() {
     if (id === activePlanId) { setActivePlanId(remaining[0]?.id || null); setActiveDay(remaining[0]?.days[0]?.id || null); }
     setConfirmDeletePlan(null);
   };
-  const startNewBlock = () => setPlans((prev) => prev.map((p) => (p.id !== plan.id ? p : { ...p, blockStartDate: new Date().toISOString() })));
+  const startNewBlock = () => setPlans((prev) => prev.map((p) => (p.id !== plan.id ? p : { ...p, blockStartDate: new Date().toISOString(), completedSessions: 0 })));
 
   const exportData = () => {
     const blob = new Blob([JSON.stringify({ plans, activePlanId }, null, 2)], { type: "application/json" });
@@ -2428,6 +2805,28 @@ export default function TrainingLog() {
     window.storage.set(THEME_KEY, id, false).catch(() => {});
     if (canEdit) saveThemePreference(firebaseUser.uid, id);
   };
+  const changeTextSize = (id) => {
+    setTextSize(id);
+    applyTextSize(id);
+    window.storage.set(TEXT_SIZE_KEY, id, false).catch(() => {});
+    if (canEdit) saveTextPrefs(firebaseUser.uid, { textSize: id });
+  };
+  const changeTextBold = (on) => {
+    setTextBold(on);
+    applyTextBold(on);
+    window.storage.set(TEXT_BOLD_KEY, on, false).catch(() => {});
+    if (canEdit) saveTextPrefs(firebaseUser.uid, { textBold: on });
+  };
+  const changeTextFont = (id) => {
+    setTextFont(id);
+    applyTextFont(id);
+    window.storage.set(TEXT_FONT_KEY, id, false).catch(() => {});
+    if (canEdit) saveTextPrefs(firebaseUser.uid, { textFont: id });
+  };
+
+  // Editable site content — public, so every user picks up admin's
+  // copy edits live regardless of who's signed in.
+  useEffect(() => { const unsub = subscribeSiteContent(setSiteContent); return () => unsub(); }, []);
 
   // Unread-message badge for the Chat nav tab — realtime, live-updates
   // without needing to open the tab first.
@@ -2443,7 +2842,26 @@ export default function TrainingLog() {
 
   if (!loaded || onboardStep === null) return <div className="w-full min-h-dvh bg-paper flex items-center justify-center"><LevelBubble /></div>;
   if (onboardStep !== "done") return <OnboardingFlow step={onboardStep} onGoogle={doOnboardGoogle} onGuest={doOnboardGuest} onEmailAuth={doOnboardEmail} onTutorialDone={afterTutorial} onChoosePlan={chooseFirstPlan} status={syncStatus} error={onboardErrorMsg} />;
-  if (!plan || !day) return <div className="w-full min-h-dvh bg-paper flex items-center justify-center"><LevelBubble /></div>;
+  if (!plan) return <div className="w-full min-h-dvh bg-paper flex items-center justify-center"><LevelBubble /></div>;
+  if (!day) {
+    // A "start from scratch" plan has zero days by design — this used
+    // to be a dead-end infinite spinner (day never resolves), now it's
+    // an actionable empty state instead.
+    return (
+      <div className="w-full min-h-dvh bg-paper flex flex-col items-center justify-center px-6 text-center gap-4">
+        <BrandMark size="lg" />
+        <div>
+          <p className="font-black text-ink text-lg mb-1">"{plan.name}" فارغة</p>
+          <p className="text-sm text-ink-faint">لم تُضِف أي يوم تمرين بعد. أضف أول يوم لتبدأ.</p>
+        </div>
+        <button onClick={() => setManageDaysOpen(true)} className="px-6 py-3 rounded-xl text-sm font-bold bg-charge text-paper hover:bg-charge-strong transition-colors flex items-center gap-1.5"><Plus className="w-4 h-4" /> إضافة يوم</button>
+        {plans.length > 1 && <button onClick={() => setPlanSwitcherOpen(true)} className="text-sm font-bold text-ink-faint hover:text-ink">أو بدّل إلى خطة أخرى</button>}
+        {manageDaysOpen && <ManageDaysModal days={plan.days} onCancel={() => setManageDaysOpen(false)} onSave={saveDays} />}
+        {planSwitcherOpen && <PlanSwitcherSheet plans={plans} activePlanId={activePlanId} levels={LEVELS} onSwitch={(id) => { switchPlan(id); setPlanSwitcherOpen(false); }} onNew={() => { setPlanSwitcherOpen(false); setNewPlanOpen(true); }} onManage={() => { setPlanSwitcherOpen(false); setPage("profile"); }} onCancel={() => setPlanSwitcherOpen(false)} />}
+        {newPlanOpen && <NewPlanModal onCancel={() => setNewPlanOpen(false)} onCreate={createPlan} />}
+      </div>
+    );
+  }
 
   const focusCount = day.exercises.filter((e) => e.focus).length;
   const levelInfo = LEVELS.find((l) => l.id === plan.level);
@@ -2451,6 +2869,7 @@ export default function TrainingLog() {
   const PAGE_TITLE = { train: "التمرين", community: "المجتمع", chat: "الرسائل", profile: "أنت" };
 
   return (
+    <ContentContext.Provider value={siteContent}>
     <div className="w-full min-h-dvh bg-paper text-ink overflow-x-hidden pb-24">
       <header className="sticky top-0 z-30 bg-paper/95 backdrop-blur border-b border-line">
         <div className="max-w-2xl mx-auto px-4 sm:px-6 h-14 flex items-center justify-between gap-3">
@@ -2489,17 +2908,31 @@ export default function TrainingLog() {
               )}
             </div>
 
-            <PlateLegend />
+            <PlateLegend editMode={contentEditMode && isAdminUser} />
 
-            {weeksIn >= 6 && !isReadOnly && (
-              <div className="mb-4 rounded-2xl bg-w4-soft border border-w4-ring p-4 flex items-start gap-3">
-                <RefreshCw className="w-5 h-5 text-w4-strong shrink-0 mt-0.5" />
-                <div className="flex-1">
-                  <p className="text-sm text-w4-strong"><span className="font-bold">الأسبوع {weeksIn} في هذه الخطة.</span> نقطة جيدة لتبديل 1-2 تمرين لكل عضلة لتنويع المفاصل.</p>
-                  <button onClick={startNewBlock} className="mt-1.5 text-sm font-bold text-w4-strong hover:opacity-75">بدء مرحلة جديدة ←</button>
+            {(() => {
+              // Gated on BOTH elapsed time and actual completed sessions —
+              // pure calendar time would nudge someone to change exercises
+              // even if they paused training for weeks, which defeats the
+              // point. plan.days.length*4 is roughly "been through the
+              // whole split about a month's worth of times".
+              const sessionsTarget = Math.max(8, plan.days.length * 4);
+              const doneEnough = (plan.completedSessions || 0) >= sessionsTarget;
+              if (!(weeksIn >= 6 && doneEnough) || isReadOnly) return null;
+              return (
+                <div className="mb-4 rounded-2xl bg-w4-soft border border-w4-ring p-4 flex items-start gap-3">
+                  <RefreshCw className="w-5 h-5 text-w4-strong shrink-0 mt-0.5" />
+                  <div className="flex-1">
+                    <p className="text-sm text-w4-strong">
+                      <span className="font-bold">الأسبوع {weeksIn} في هذه الخطة. </span>
+                      <EditableText k="planBanner.body" fallback="نقطة جيدة لتبديل 1-2 تمرين لكل عضلة لتنويع المفاصل." editMode={contentEditMode && isAdminUser} className="inline" as="span" />
+                    </p>
+                    <button onClick={startNewBlock} className="mt-1.5 text-sm font-bold text-w4-strong hover:opacity-75">بدء مرحلة جديدة ←</button>
+                    <InfoButton text="بعد قرابة 6-8 أسابيع ستحصل على هذا التذكير — مبني على أبحاث، وليس تبديلاً عشوائياً. يظهر فقط بعد أن تكون قد أنجزت عدداً كافياً من الجلسات الفعلية في هذه الخطة، وليس فقط مرور الوقت، حتى لا يظهر لك إن كنت قد توقفت عن التمرين لفترة." />
+                  </div>
                 </div>
-              </div>
-            )}
+              );
+            })()}
 
             <button onClick={() => !isReadOnly && guard(() => setManageDaysOpen(true))()} disabled={isReadOnly} className="w-full flex flex-row-reverse items-center justify-between mb-3 px-1 py-1 disabled:cursor-default">
               <span className="inline-flex items-center gap-1.5 text-sm font-bold text-ink-soft">{plan.days.length} أيام / أسبوع <Calendar className="w-4 h-4" /></span>
@@ -2545,7 +2978,7 @@ export default function TrainingLog() {
           </>
         )}
 
-        {page === "community" && <CommunityPage onFork={forkPlan} isOnline={isOnline} />}
+        {page === "community" && <CommunityPage onFork={forkPlan} isOnline={isOnline} user={firebaseUser} canEdit={canEdit} />}
 
         {page === "chat" && canEdit && (
           <div
@@ -2553,7 +2986,7 @@ export default function TrainingLog() {
             style={{ top: "3.5rem", bottom: "calc(4.5rem + env(safe-area-inset-bottom))" }}
           >
             <div className="max-w-2xl w-full mx-auto px-4 sm:px-6 pt-4 flex-1 min-h-0 flex flex-col">
-              <ChatPage user={firebaseUser} authorName={authorName} isAdminUser={isAdminUser} />
+              <ChatPage user={firebaseUser} authorName={authorName} isAdminUser={isAdminUser} editMode={contentEditMode && isAdminUser} />
             </div>
           </div>
         )}
@@ -2593,11 +3026,40 @@ export default function TrainingLog() {
                     onClick={() => changeTheme(t.id)}
                     className={`rounded-2xl p-3 text-center border transition-colors ${theme === t.id ? "border-charge bg-charge-soft" : "border-line bg-card hover:border-ink-faint"}`}
                   >
-                    <span className={`block w-full h-8 rounded-lg mb-2 ${t.id === "equipment" ? "bg-[#100f0d] border border-[#d9a441]" : t.id === "studio" ? "bg-[#faf7f0] border border-[#9c5a1f]" : "bg-[#060a06] border border-[#5ee85e]"}`} />
+                    <span className={`block w-full h-8 rounded-lg mb-2 ${THEME_SWATCH[t.id]}`} />
                     <span className={`text-xs font-bold block ${theme === t.id ? "text-charge" : "text-ink"}`}>{t.name}</span>
                     <span className="text-[10px] text-ink-faint block mt-0.5">{t.desc}</span>
                   </button>
                 ))}
+              </div>
+            </section>
+
+            <section>
+              <h2 className="text-[11px] font-bold uppercase tracking-[0.14em] text-ink-faint mb-2.5">النص</h2>
+              <div className="rounded-2xl border border-line bg-card p-4 space-y-4">
+                <div>
+                  <p className="text-xs font-bold text-ink-soft mb-2">الحجم</p>
+                  <div className="grid grid-cols-3 gap-2">
+                    {TEXT_SIZES.map((s) => (
+                      <button key={s.id} onClick={() => changeTextSize(s.id)} className={`py-2 rounded-xl text-xs font-bold border transition-colors ${textSize === s.id ? "border-charge bg-charge-soft text-charge" : "border-line text-ink-faint hover:border-ink-faint hover:text-ink"}`}>{s.name}</button>
+                    ))}
+                  </div>
+                </div>
+                <div>
+                  <p className="text-xs font-bold text-ink-soft mb-2">الخط</p>
+                  <div className="space-y-1.5">
+                    {TEXT_FONTS.map((f) => (
+                      <button key={f.id} onClick={() => changeTextFont(f.id)} className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-xs font-bold border transition-colors ${textFont === f.id ? "border-charge bg-charge-soft text-charge" : "border-line text-ink-faint hover:border-ink-faint hover:text-ink"}`}>
+                        {f.name}
+                        {textFont === f.id && <Check className="w-3.5 h-3.5" />}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <label className="flex items-center justify-between cursor-pointer">
+                  <span className="text-xs font-bold text-ink-soft">نص أعرض (خاصة النصوص الرمادية الصغيرة)</span>
+                  <input type="checkbox" checked={textBold} onChange={(e) => changeTextBold(e.target.checked)} className="w-4 h-4 rounded border-line accent-charge shrink-0" />
+                </label>
               </div>
             </section>
 
@@ -2700,19 +3162,25 @@ export default function TrainingLog() {
         </div>
       </nav>
 
-      {modal && <ExerciseModal title={modal.mode === "add" ? "إضافة تمرين" : "تعديل تمرين"} initial={modal.exercise} onCancel={() => setModal(null)} onSave={(form) => { if (modal.mode === "add") addExercise(form); else { updateExercise({ ...form, id: modal.exercise.id }); setModal(null); } }} />}
+      {modal && <ExerciseModal title={modal.mode === "add" ? "إضافة تمرين" : "تعديل تمرين"} initial={modal.exercise} isAdminUser={isAdminUser} onCancel={() => setModal(null)} onSave={(form) => { if (modal.mode === "add") addExercise(form); else { updateExercise({ ...form, id: modal.exercise.id }); setModal(null); } }} />}
       {newPlanOpen && <NewPlanModal onCancel={() => setNewPlanOpen(false)} onCreate={createPlan} />}
       {manageDaysOpen && <ManageDaysModal days={plan.days} onCancel={() => setManageDaysOpen(false)} onSave={saveDays} />}
       {syncOpen && <ProfileModal user={firebaseUser} authorName={authorName} onCancel={() => setSyncOpen(false)} onSignIn={doSignIn} onUpgrade={doUpgrade} onSignOut={doSignOut} status={syncStatus} error={syncError} />}
       {shareOpen && <ShareModal plan={shareOpen} user={firebaseUser} authorName={authorName} onCancel={() => setShareOpen(null)} onPatchPlan={(patch) => patchPlan(shareOpen.id, patch)} />}
       {planSwitcherOpen && <PlanSwitcherSheet plans={plans} activePlanId={activePlanId} levels={LEVELS} onSwitch={(id) => { switchPlan(id); setPlanSwitcherOpen(false); }} onNew={() => { setPlanSwitcherOpen(false); setNewPlanOpen(true); }} onManage={() => { setPlanSwitcherOpen(false); setPage("profile"); }} onCancel={() => setPlanSwitcherOpen(false)} />}
-      {sessionOpen && day && <WorkoutSession day={day} onExit={() => setSessionOpen(false)} />}
+      {sessionOpen && day && <WorkoutSession day={day} onExit={(completed) => { if (completed) setPlans((prev) => prev.map((p) => (p.id !== plan.id ? p : { ...p, completedSessions: (p.completedSessions || 0) + 1 }))); setSessionOpen(false); }} />}
       {needsName && canEdit && <NameModal onSave={saveName} />}
       {adminToolsOpen && (
         <FullScreenSheet title="أدوات المسؤول" onBack={() => setAdminToolsOpen(false)}>
-          <AdminPanel user={firebaseUser} />
+          <AdminPanel user={firebaseUser} contentEditMode={contentEditMode} onToggleContentEditMode={() => setContentEditMode((v) => !v)} onPreviewTutorial={() => setTutorialPreviewOpen(true)} />
         </FullScreenSheet>
       )}
+      {tutorialPreviewOpen && (
+        <div className="fixed inset-0 z-[70] bg-paper">
+          <TutorialStep onDone={() => setTutorialPreviewOpen(false)} editMode={true} />
+        </div>
+      )}
     </div>
+    </ContentContext.Provider>
   );
 }
