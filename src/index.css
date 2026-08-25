@@ -1,48 +1,48 @@
 @import "tailwindcss";
-@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700;800&family=IBM+Plex+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@500;600;700&family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Changa:wght@500;600;700;800&family=Cairo:wght@400;500;600;700;800&family=Tajawal:wght@400;500;700;800&family=Markazi+Text:wght@500;600;700&family=Reem+Kufi:wght@500;600;700&family=Lemonada:wght@500;600;700&family=El+Messiri:wght@500;600;700&family=Almarai:wght@400;700;800&family=IBM+Plex+Sans+Arabic:wght@500;600;700&family=JetBrains+Mono:wght@500;600;700&display=swap');
 
 /*
-  Training Log — design tokens (v2)
+  Training Log — design tokens
   ------------------------------------------------------------------
-  Concept: a dark equipment-room palette (warm charcoal, not pure
-  black) with a burnished-brass accent for interactive elements.
+  IMPORTANT — why this file is structured the way it is:
 
-  Signature idea: WEIGHT TIERS ARE COLOR-CODED LIKE COMPETITION
-  BUMPER PLATES. Olympic weightlifting/powerlifting plates use a
-  standardized color code by weight (white/green/yellow/blue/red as
-  load increases) — every lifter already reads plate color as "how
-  heavy" on sight. We reuse that exact real-world code for the five
-  load tiers instead of an invented ramp, so the color language is
-  something the audience already trusts and recognizes at a glance.
-  Class names (--color-w1..w5 etc.) are kept from the old palette so
-  the component tree below didn't need touching, only the values.
+  Tailwind v4's `@theme { --color-x: #hex; }` registers the token AT
+  BUILD TIME and is NOT reliably overridable at runtime via a
+  `[data-theme="x"]` selector later in the cascade — this bit us for
+  real: every theme past the first one was silently rendering as
+  Equipment Room because of exactly this. (Documented, well-known v4
+  gotcha — see tailwindlabs/tailwindcss discussions #15122, #15199,
+  #16292, #15600 for others hitting the same thing.)
+
+  The fix is the pattern Tailwind's own maintainers recommend: use
+  `@theme inline` to register each token as a pointer to a PLAIN CSS
+  variable (`--tl-*` below), then only ever change the `--tl-*`
+  variable per theme. `@theme inline` tells Tailwind "don't bake this
+  value in, always resolve it via the cascade at paint time" — which
+  is exactly what runtime theme-switching needs.
 */
 
-@theme {
-  /* Base surfaces — warm charcoal, not pure black (avoids the
-     generic "near-black + neon" look) */
-  --color-ink: #f2eee4;
-  --color-ink-soft: #b3ac9d;
-  --color-ink-faint: #7c7568;
+@theme inline {
+  --color-ink: var(--tl-ink);
+  --color-ink-soft: var(--tl-ink-soft);
+  --color-ink-faint: var(--tl-ink-faint);
 
-  --color-paper: #100f0d;
-  --color-card: #1a1815;
-  --color-line: #322e28;
-  --color-mist: #211f1b;
+  --color-paper: var(--tl-paper);
+  --color-card: var(--tl-card);
+  --color-line: var(--tl-line);
+  --color-mist: var(--tl-mist);
 
-  /* Primary interactive accent — burnished brass, like a barbell
-     collar. Warm, not neon; distinct from the plate colors below so
-     "this is tappable" never gets confused with "this is a weight". */
-  --color-charge: #d9a441;
-  --color-charge-strong: #b8822a;
-  --color-charge-soft: rgba(217, 164, 65, 0.14);
+  --color-charge: var(--tl-charge);
+  --color-charge-strong: var(--tl-charge-strong);
+  --color-charge-soft: var(--tl-charge-soft);
 
-  --color-danger: #e5544a;
-  --color-danger-soft: rgba(229, 84, 74, 0.14);
+  --color-danger: var(--tl-danger);
+  --color-danger-soft: var(--tl-danger-soft);
 
-  /* Plate color code — Light → Heavy, standardized competition
-     bumper-plate colors: white(5) → green(10) → yellow(15) →
-     blue(20) → red(25) */
+  /* Plate color code — Light → Heavy, standardized real-world
+     competition bumper-plate colors. Deliberately NEVER themed —
+     "how heavy" has to stay legible no matter which theme is active,
+     so these skip the --tl- indirection entirely; they're constants. */
   --color-w1: #ded7c5;
   --color-w1-strong: #867a5c;
   --color-w1-soft: rgba(222, 215, 197, 0.12);
@@ -68,101 +68,254 @@
   --color-w5-soft: rgba(239, 106, 95, 0.14);
   --color-w5-ring: rgba(239, 106, 95, 0.4);
 
-  --font-display: "Space Grotesk", ui-sans-serif, system-ui, sans-serif;
-  --font-body: "IBM Plex Sans", ui-sans-serif, system-ui, sans-serif;
-  --font-mono: "JetBrains Mono", ui-monospace, monospace;
+  --font-display: var(--tl-font-display);
+  --font-body: var(--tl-font-body);
+  --font-mono: var(--tl-font-mono);
+
+  --radius-2xl: var(--tl-radius-2xl);
+  --radius-xl: var(--tl-radius-xl);
+  --radius-lg: var(--tl-radius-lg);
+  --radius-md: var(--tl-radius-md);
+  --radius-sm: var(--tl-radius-sm);
+  --radius-full: var(--tl-radius-full);
 }
 
-/*
-  ------------------------------------------------------------------
-  THEMES
-  ------------------------------------------------------------------
-  The block above (@theme) is "Equipment Room", the default. Every
-  other theme below overrides the exact same custom-property names
-  scoped to [data-theme="..."] on <html> — since every existing
-  utility class (bg-charge, text-ink, rounded-2xl, font-display...)
-  already reads its value from these variables at paint time, no
-  component markup has to change to support a new theme. Each theme
-  changes more than color: fonts, corner radius, and card treatment
-  all shift too, so switching actually feels like a different app,
-  not a different coat of paint on the same one.
+/* ---- Equipment Room — the default. Dark warm charcoal, burnished
+   brass accent, like a barbell collar. ---- */
+:root {
+  --tl-ink: #f2eee4;
+  --tl-ink-soft: #b3ac9d;
+  --tl-ink-faint: #7c7568;
 
-  Plate colors (--color-w1..w5) are deliberately NOT overridden by
-  any theme — they're a real-world standard (bumper-plate colors),
-  not a design choice, so "how heavy" stays legible no matter which
-  theme is active.
-*/
+  --tl-paper: #100f0d;
+  --tl-card: #1a1815;
+  --tl-line: #322e28;
+  --tl-mist: #211f1b;
+
+  --tl-charge: #d9a441;
+  --tl-charge-strong: #b8822a;
+  --tl-charge-soft: rgba(217, 164, 65, 0.14);
+
+  --tl-danger: #e5544a;
+  --tl-danger-soft: rgba(229, 84, 74, 0.14);
+
+  --tl-font-display: "Changa", "Space Grotesk", ui-sans-serif, system-ui, sans-serif;
+  --tl-font-body: "Cairo", "IBM Plex Sans", ui-sans-serif, system-ui, sans-serif;
+  --tl-font-mono: "JetBrains Mono", ui-monospace, monospace;
+
+  /* Tailwind's own default radius scale — kept identical so Equipment
+     Room's look doesn't shift now that radius is theme-driven too. */
+  --tl-radius-2xl: 1rem;
+  --tl-radius-xl: 0.75rem;
+  --tl-radius-lg: 0.5rem;
+  --tl-radius-md: 0.375rem;
+  --tl-radius-sm: 0.25rem;
+  --tl-radius-full: 9999px;
+
+  color-scheme: dark;
+}
 
 /* ---- Studio — light, editorial, quiet. Paper-white surfaces, a
-   serif display face for headings, sharp-ish corners, hairline
-   borders instead of shadows or heavy fills. ---- */
+   serif-leaning display face for headings, sharp-ish corners,
+   hairline borders instead of shadows or heavy fills. ---- */
 [data-theme="studio"] {
-  --color-ink: #221f1a;
-  --color-ink-soft: #5c574c;
-  --color-ink-faint: #928c7c;
+  --tl-ink: #221f1a;
+  --tl-ink-soft: #5c574c;
+  --tl-ink-faint: #928c7c;
 
-  --color-paper: #faf7f0;
-  --color-card: #ffffff;
-  --color-line: #e4ddcc;
-  --color-mist: #f1ece0;
+  --tl-paper: #faf7f0;
+  --tl-card: #ffffff;
+  --tl-line: #e4ddcc;
+  --tl-mist: #f1ece0;
 
-  --color-charge: #9c5a1f;
-  --color-charge-strong: #7a4416;
-  --color-charge-soft: rgba(156, 90, 31, 0.10);
+  --tl-charge: #9c5a1f;
+  --tl-charge-strong: #7a4416;
+  --tl-charge-soft: rgba(156, 90, 31, 0.10);
 
-  --color-danger: #b23b31;
-  --color-danger-soft: rgba(178, 59, 49, 0.10);
+  --tl-danger: #b23b31;
+  --tl-danger-soft: rgba(178, 59, 49, 0.10);
 
-  --font-display: "Fraunces", ui-serif, Georgia, serif;
-  --font-body: "IBM Plex Sans", ui-sans-serif, system-ui, sans-serif;
-  --font-mono: "JetBrains Mono", ui-monospace, monospace;
+  --tl-font-display: "Markazi Text", ui-serif, Georgia, serif;
+  --tl-font-body: "Tajawal", ui-sans-serif, system-ui, sans-serif;
+  --tl-font-mono: "JetBrains Mono", ui-monospace, monospace;
 
-  --radius-2xl: 0.625rem;
-  --radius-xl: 0.5rem;
-  --radius-lg: 0.4rem;
-  --radius-md: 0.3rem;
-  --radius-sm: 0.2rem;
+  --tl-radius-2xl: 0.625rem;
+  --tl-radius-xl: 0.5rem;
+  --tl-radius-lg: 0.4rem;
+  --tl-radius-md: 0.3rem;
+  --tl-radius-sm: 0.2rem;
+  --tl-radius-full: 9999px;
 
   color-scheme: light;
 }
 
 /* ---- Arcade — near-black, high-contrast, a scoreboard/competition
-   feel. Electric green accent, squared-off corners, monospace for
-   headings so numbers read like a timer. ---- */
+   feel. Electric green accent, squared-off corners, a bold geometric
+   display face so headings read like a digital scoreboard. ---- */
 [data-theme="arcade"] {
-  --color-ink: #eef7ee;
-  --color-ink-soft: #9db89d;
-  --color-ink-faint: #607862;
+  --tl-ink: #eef7ee;
+  --tl-ink-soft: #9db89d;
+  --tl-ink-faint: #607862;
 
-  --color-paper: #060a06;
-  --color-card: #0e140e;
-  --color-line: #1e2b1e;
-  --color-mist: #131b13;
+  --tl-paper: #060a06;
+  --tl-card: #0e140e;
+  --tl-line: #1e2b1e;
+  --tl-mist: #131b13;
 
-  --color-charge: #5ee85e;
-  --color-charge-strong: #3fc23f;
-  --color-charge-soft: rgba(94, 232, 94, 0.14);
+  --tl-charge: #5ee85e;
+  --tl-charge-strong: #3fc23f;
+  --tl-charge-soft: rgba(94, 232, 94, 0.14);
 
-  --color-danger: #ff5252;
-  --color-danger-soft: rgba(255, 82, 82, 0.14);
+  --tl-danger: #ff5252;
+  --tl-danger-soft: rgba(255, 82, 82, 0.14);
 
-  --font-display: "JetBrains Mono", ui-monospace, monospace;
-  --font-body: "IBM Plex Sans", ui-sans-serif, system-ui, sans-serif;
-  --font-mono: "JetBrains Mono", ui-monospace, monospace;
+  --tl-font-display: "Reem Kufi", ui-sans-serif, system-ui, sans-serif;
+  --tl-font-body: "Cairo", ui-sans-serif, system-ui, sans-serif;
+  --tl-font-mono: "JetBrains Mono", ui-monospace, monospace;
 
-  --radius-2xl: 0.25rem;
-  --radius-xl: 0.2rem;
-  --radius-lg: 0.15rem;
-  --radius-md: 0.125rem;
-  --radius-sm: 0.0625rem;
-  --radius-full: 0.25rem; /* even "pill" shapes go square-ish here */
+  --tl-radius-2xl: 0.25rem;
+  --tl-radius-xl: 0.2rem;
+  --tl-radius-lg: 0.15rem;
+  --tl-radius-md: 0.125rem;
+  --tl-radius-sm: 0.0625rem;
+  --tl-radius-full: 0.25rem; /* even "pill" shapes go square-ish here */
+
+  color-scheme: dark;
+}
+
+/* ---- Notebook — warm cream paper, soft and rounded, a playful
+   handwritten-leaning display face. Everything feels a little softer
+   and friendlier than Equipment Room's industrial edges. ---- */
+[data-theme="notebook"] {
+  --tl-ink: #3a2a1a;
+  --tl-ink-soft: #7a6248;
+  --tl-ink-faint: #a8977f;
+
+  --tl-paper: #f7ecd9;
+  --tl-card: #fffaf0;
+  --tl-line: #e6d3b0;
+  --tl-mist: #f1e2c4;
+
+  --tl-charge: #b5652f;
+  --tl-charge-strong: #8f4d22;
+  --tl-charge-soft: rgba(181, 101, 47, 0.12);
+
+  --tl-danger: #c0453a;
+  --tl-danger-soft: rgba(192, 69, 58, 0.12);
+
+  --tl-font-display: "Lemonada", ui-sans-serif, system-ui, sans-serif;
+  --tl-font-body: "Tajawal", ui-sans-serif, system-ui, sans-serif;
+  --tl-font-mono: "JetBrains Mono", ui-monospace, monospace;
+
+  --tl-radius-2xl: 1.5rem;
+  --tl-radius-xl: 1.25rem;
+  --tl-radius-lg: 1rem;
+  --tl-radius-md: 0.75rem;
+  --tl-radius-sm: 0.5rem;
+  --tl-radius-full: 999px;
+
+  color-scheme: light;
+}
+
+/* ---- Desert — warm terracotta and sand, dark but not cold, a
+   confident semi-formal display face. Generous rounding, feels
+   premium rather than utilitarian. ---- */
+[data-theme="desert"] {
+  --tl-ink: #f5e6d3;
+  --tl-ink-soft: #c9a67e;
+  --tl-ink-faint: #8f7359;
+
+  --tl-paper: #2b1710;
+  --tl-card: #3a2116;
+  --tl-line: #52301f;
+  --tl-mist: #331c12;
+
+  --tl-charge: #e0964a;
+  --tl-charge-strong: #c67934;
+  --tl-charge-soft: rgba(224, 150, 74, 0.16);
+
+  --tl-danger: #e2624f;
+  --tl-danger-soft: rgba(226, 98, 79, 0.16);
+
+  --tl-font-display: "El Messiri", ui-sans-serif, system-ui, sans-serif;
+  --tl-font-body: "Almarai", ui-sans-serif, system-ui, sans-serif;
+  --tl-font-mono: "JetBrains Mono", ui-monospace, monospace;
+
+  --tl-radius-2xl: 1.25rem;
+  --tl-radius-xl: 1rem;
+  --tl-radius-lg: 0.75rem;
+  --tl-radius-md: 0.6rem;
+  --tl-radius-sm: 0.4rem;
+  --tl-radius-full: 9999px;
+
+  color-scheme: dark;
+}
+
+/* ---- Glass — cool blue-slate, translucent surfaces (semi-transparent
+   card color layered over the dark paper gives a frosted-glass feel
+   without needing backdrop-filter on every component), crisp modern
+   display face, generous rounding. ---- */
+[data-theme="glass"] {
+  --tl-ink: #e8edf5;
+  --tl-ink-soft: #9fb0c9;
+  --tl-ink-faint: #63748f;
+
+  --tl-paper: #0d1420;
+  --tl-card: rgba(34, 51, 74, 0.62);
+  --tl-line: rgba(130, 160, 200, 0.28);
+  --tl-mist: rgba(34, 51, 74, 0.38);
+
+  --tl-charge: #4fa3f7;
+  --tl-charge-strong: #2d7fd1;
+  --tl-charge-soft: rgba(79, 163, 247, 0.16);
+
+  --tl-danger: #ff6b6b;
+  --tl-danger-soft: rgba(255, 107, 107, 0.16);
+
+  --tl-font-display: "IBM Plex Sans Arabic", ui-sans-serif, system-ui, sans-serif;
+  --tl-font-body: "Cairo", ui-sans-serif, system-ui, sans-serif;
+  --tl-font-mono: "JetBrains Mono", ui-monospace, monospace;
+
+  --tl-radius-2xl: 1.25rem;
+  --tl-radius-xl: 1rem;
+  --tl-radius-lg: 0.75rem;
+  --tl-radius-md: 0.6rem;
+  --tl-radius-sm: 0.4rem;
+  --tl-radius-full: 9999px;
 
   color-scheme: dark;
 }
 
 html {
   -webkit-tap-highlight-color: transparent;
-  color-scheme: dark;
+}
+
+/* ---- Text size — scales the whole app since every Tailwind text
+   utility is rem-based, so one root font-size change resizes
+   everything proportionally without touching component markup. ---- */
+html[data-text-size="small"] { font-size: 93.75%; }
+html[data-text-size="large"] { font-size: 112.5%; }
+
+/* ---- Bold text — the specific complaint was that muted/secondary
+   text (text-ink-soft, text-ink-faint) reads too thin at small sizes.
+   Bump their baseline weight a little always, and further when the
+   "bolder" setting is on — this only touches the muted tiers, since
+   headings and primary text already carry their own font-bold. ---- */
+.text-ink-soft, .text-ink-faint { font-weight: 500; }
+html[data-text-bold="true"] .text-ink-soft, html[data-text-bold="true"] .text-ink-faint { font-weight: 700; }
+html[data-text-bold="true"] body { font-weight: 500; }
+
+/* ---- Font family override — independent of theme. "simple" drops
+   the theme's distinct display face and uses the body font for
+   headings too (one consistent typeface everywhere); "mono" goes
+   full monospace, which given JetBrains Mono's Arabic-tofu problem
+   only really affects Latin/digit content — Arabic still needs a
+   real Arabic-glyph fallback, hence the stack below. These override
+   the --tl- variables too, same mechanism as themes. ---- */
+html[data-font="simple"] { --tl-font-display: var(--tl-font-body); }
+html[data-font="mono"] {
+  --tl-font-display: "JetBrains Mono", "Cairo", ui-monospace, monospace;
+  --tl-font-body: "JetBrains Mono", "Cairo", ui-monospace, monospace;
 }
 
 body {
@@ -221,4 +374,6 @@ body {
    it's hidden entirely and the chat panel reclaims that strip of
    screen. Pure CSS (:has), no JS/state plumbing needed. */
 body:has(.tl-chat-textarea:focus) .tl-bottom-nav { display: none; }
-body:has(.tl-chat-textarea:focus) .tl-chat-panel { bottom: 0; }
+/* The chat panel's bottom offset when the keyboard is open is handled
+   in JS (see ChatPage's visualViewport listener) since it needs the
+   actual keyboard height, which CSS can't measure. */
