@@ -277,6 +277,7 @@ const THEMES = [
   { id: "arcade", name: "أركيد", desc: "تباين عالٍ، أخضر نيون" },
   { id: "notebook", name: "دفتر", desc: "دافئ، ورقي، مستدير" },
   { id: "desert", name: "صحراء", desc: "ترابي، دافئ، فخم" },
+  { id: "glass", name: "زجاج", desc: "أزرق بارد، سطوح شفافة" },
 ];
 const THEME_SWATCH = {
   equipment: "bg-[#100f0d] border border-[#d9a441]",
@@ -284,6 +285,7 @@ const THEME_SWATCH = {
   arcade: "bg-[#060a06] border border-[#5ee85e]",
   notebook: "bg-[#f7ecd9] border border-[#b5652f]",
   desert: "bg-[#2b1710] border border-[#e0964a]",
+  glass: "bg-[#0d1420] border border-[#4fa3f7]",
 };
 const THEME_KEY = "training-log-theme";
 function applyTheme(id) {
