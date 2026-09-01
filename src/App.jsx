@@ -7,6 +7,7 @@ import {
   Loader2, ChevronDown, Search, Download, Upload, ChevronRight,
   Cloud, RefreshCw, AlertTriangle, Sparkles, Users, Send, Copy, Calendar,
   Home, User, WifiOff, Clock, Flame, Volume2, VolumeX, Menu, Share, Archive,
+  Lock, BadgeCheck, ListFilter,
 } from "lucide-react";
 
 // The original app used `window.storage`, an API that only exists inside
@@ -675,29 +676,91 @@ function parseYoutubeId(url) {
   return m ? m[1] : (/^[\w-]{11}$/.test(url.trim()) ? url.trim() : null);
 }
 
-function ExerciseModal({ initial, onCancel, onSave, title, isAdminUser }) {
+// Full searchable browse of every exercise in the shared library (official
+// + everything users have submitted), with a badge on each row so it's
+// always clear which is which before you pick one.
+function LibraryPickerSheet({ onPick, onCancel }) {
+  const [q, setQ] = useState("");
+  const query = q.trim().toLowerCase();
+  const results = RUNTIME_LIBRARY.filter((e) => !query || e.name.toLowerCase().includes(query) || (EXNAME_AR[e.name] || "").includes(q.trim()) || (e.muscle || "").toLowerCase().includes(query))
+    .sort((a, b) => a.name.localeCompare(b.name));
+  return (
+    <div className="fixed inset-0 z-[65] flex items-end sm:items-center justify-center bg-black/60 backdrop-blur-[2px]" onClick={onCancel}>
+      <div className={sheetClass} onClick={(e) => e.stopPropagation()}>
+        <div className="sticky top-0 bg-card px-5 py-4 border-b border-line z-10">
+          <div className="flex items-center justify-between mb-3">
+            <h3 className="font-display font-black text-lg text-ink">مكتبة التمارين</h3>
+            <button onClick={onCancel} className="p-2 -mr-2 rounded-full text-ink-faint hover:bg-mist"><X className="w-5 h-5" /></button>
+          </div>
+          <div className="relative">
+            <Search className="w-4 h-4 text-ink-faint absolute right-3.5 top-1/2 -translate-y-1/2" />
+            <input autoFocus value={q} onChange={(e) => setQ(e.target.value)} placeholder="ابحث عن تمرين…" className={inputClass + " pr-10"} />
+          </div>
+        </div>
+        <div className="p-3 space-y-1.5 max-h-[60vh] overflow-y-auto">
+          {results.length === 0 && <p className="text-sm text-ink-faint text-center py-8">لا نتائج — يمكنك إضافته كتمرين جديد بدل ذلك.</p>}
+          {results.map((e) => (
+            <button key={e.name} type="button" onClick={() => onPick(e)} className="w-full flex items-center gap-3 p-2.5 rounded-2xl text-left hover:bg-mist transition-colors">
+              {e.image ? <img src={e.image} alt="" className="w-12 h-12 rounded-xl object-cover shrink-0" /> : <div className="w-12 h-12 rounded-xl bg-mist flex items-center justify-center shrink-0"><Dumbbell className="w-5 h-5 text-ink-faint" /></div>}
+              <div className="flex-1 min-w-0">
+                <p className="font-bold text-sm text-ink truncate">{exLabel(e.name)}</p>
+                <p className="text-xs text-ink-faint truncate">{muscleLabel(e.muscle)}</p>
+              </div>
+              <LibraryBadge entry={e} />
+            </button>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ExerciseModal({ initial, onCancel, onSave, title, isAdminUser, currentUid, canSubmitLibrary, authorName }) {
   const [form, setForm] = useState(initial);
   const [videoUrl, setVideoUrl] = useState(initial.videoId ? `https://youtu.be/${initial.videoId}` : "");
   const [askLibrary, setAskLibrary] = useState(false);
   const [libraryBusy, setLibraryBusy] = useState(false);
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const [addToLibrary, setAddToLibrary] = useState(false);
+  const [submitBusy, setSubmitBusy] = useState(false);
   const set = (k) => (e) => setForm((f) => ({ ...f, [k]: e.target.value }));
   const canSave = form.name.trim().length > 0 && form.muscle.trim().length > 0 && form.reps.trim().length > 0;
   const searchUrl = `https://www.google.com/search?tbm=isch&q=${encodeURIComponent((form.name || "exercise") + " exercise proper form")}`;
   const match = findLibraryMatch(form.name);
+  // Ownership: admins own every entry; a regular user owns only what they
+  // personally submitted. Everyone else gets a read-only name/muscle/photo
+  // for a matched entry — sets/reps/weight/rest stay theirs to tune locally.
+  const isOwner = isAdminUser || (!!match && match.source === "user" && !!currentUid && match.submittedBy === currentUid);
+  const locked = !!match && !isOwner;
   const applyLibrary = () => {
     if (!match) return;
     setForm((f) => ({ ...f, muscle: match.muscle, sets: match.sets, reps: match.reps, weight: match.weight, rest: match.rest, image: f.image || match.image }));
   };
-  // Admin only: if this exercise came from the shared library but got
-  // edited (muscle/sets/reps/weight/rest no longer match), saving offers
-  // the choice to push those edits back into the library too — otherwise
-  // the change stays local to this one exercise in this one plan.
-  const divergesFromLibrary = isAdminUser && match && (
-    form.muscle !== match.muscle || Number(form.sets) !== match.sets || form.reps !== match.reps || form.weight !== match.weight || form.rest !== match.rest
+  const pickFromLibrary = (entry) => {
+    setForm((f) => ({ ...f, name: entry.name, muscle: entry.muscle, sets: entry.sets, reps: entry.reps, weight: entry.weight, rest: entry.rest, image: entry.image || f.image, videoId: entry.youtubeId || f.videoId }));
+    if (entry.youtubeId) setVideoUrl(`https://youtu.be/${entry.youtubeId}`);
+    setPickerOpen(false);
+  };
+  // If this exercise came from the shared library and the person editing it
+  // owns it (admin for official entries, the original submitter for their
+  // own), saving with changed values offers pushing those changes back into
+  // the library too — otherwise the change stays local to this one plan.
+  const divergesFromLibrary = isOwner && match && (
+    form.muscle !== match.muscle || Number(form.sets) !== match.sets || form.reps !== match.reps || form.weight !== match.weight || form.rest !== match.rest || (form.image || null) !== (match.image || null)
   );
   const finalize = () => onSave({ ...form, sets: Number(form.sets) || 1 });
-  const attemptSave = () => {
+  const attemptSave = async () => {
     if (!canSave) return;
+    if (!match && addToLibrary && canSubmitLibrary) {
+      setSubmitBusy(true);
+      try {
+        await submitLibraryEntry(form.name.trim(), {
+          muscle: form.muscle, sets: Number(form.sets) || 1, reps: form.reps, weight: form.weight, rest: form.rest,
+          image: form.image || null, youtubeId: form.videoId || null,
+        }, currentUid, authorName, isAdminUser ? "official" : "user");
+      } catch (err) { /* the plan-local save still proceeds either way */ }
+      setSubmitBusy(false);
+    }
     if (divergesFromLibrary) { setAskLibrary(true); return; }
     finalize();
   };
@@ -705,9 +768,12 @@ function ExerciseModal({ initial, onCancel, onSave, title, isAdminUser }) {
     if (pushToLibrary) {
       setLibraryBusy(true);
       try {
-        await adminSaveLibraryEntry(slugify(form.name), {
+        await saveLibraryEntry(slugify(form.name), {
           name: form.name, muscle: form.muscle, sets: Number(form.sets) || 1, reps: form.reps, weight: form.weight, rest: form.rest,
           image: form.image || match?.image || null, youtubeId: form.videoId || match?.youtubeId || null,
+          source: match.source === "user" ? "user" : "official",
+          submittedBy: match.source === "user" ? match.submittedBy : null,
+          submittedByName: match.source === "user" ? match.submittedByName : null,
         });
       } catch (err) { /* the plan-local save still proceeds either way */ }
       setLibraryBusy(false);
@@ -738,7 +804,7 @@ function ExerciseModal({ initial, onCancel, onSave, title, isAdminUser }) {
           <h2 className="text-xl font-black text-ink font-display">{title}</h2>
           <button onClick={onCancel} className="p-2 -mr-2 rounded-full text-ink-faint hover:bg-mist"><X className="w-5 h-5" /></button>
         </div>
-        <BigPhoto image={form.image} onPick={(img) => setForm((f) => ({ ...f, image: img }))} libraryImage={match?.image} />
+        <BigPhoto image={form.image} onPick={(img) => setForm((f) => ({ ...f, image: img }))} libraryImage={match?.image} readOnly={locked} />
         {(form.videoId || match?.youtubeId) && (
           <div className="px-5 pt-3">
             <div className="aspect-video rounded-2xl overflow-hidden bg-mist">
@@ -746,29 +812,55 @@ function ExerciseModal({ initial, onCancel, onSave, title, isAdminUser }) {
             </div>
           </div>
         )}
-        <div className="px-5 pt-3">
-          <a href={searchUrl} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1.5 text-sm font-bold text-charge hover:text-charge-strong">
-            <Search className="w-4 h-4" /> بحث عن صور لـ"{form.name || "هذا التمرين"}" <ChevronRight className="w-4 h-4" />
-          </a>
-        </div>
+        {!locked && (
+          <div className="px-5 pt-3">
+            <a href={searchUrl} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1.5 text-sm font-bold text-charge hover:text-charge-strong">
+              <Search className="w-4 h-4" /> بحث عن صور لـ"{form.name || "هذا التمرين"}" <ChevronRight className="w-4 h-4" />
+            </a>
+          </div>
+        )}
         <div className="p-5 pt-4 space-y-4">
           <Field label="اسم التمرين">
-            <input value={form.name} onChange={set("name")} placeholder="ابدأ الكتابة — التمارين المعروفة تكتمل تلقائياً" list="exercise-library-names" className={inputClass} />
+            <div className="flex gap-2">
+              <input value={form.name} disabled={locked} onChange={set("name")} placeholder="ابدأ الكتابة — التمارين المعروفة تكتمل تلقائياً" list="exercise-library-names" className={inputClass + (locked ? " opacity-60 cursor-not-allowed" : "")} />
+              {!locked && (
+                <button type="button" onClick={() => setPickerOpen(true)} title="تصفح المكتبة" className="shrink-0 rounded-xl border border-line px-3.5 bg-mist text-ink-faint hover:text-charge hover:border-charge/50 transition-colors"><ListFilter className="w-4 h-4" /></button>
+              )}
+            </div>
             <datalist id="exercise-library-names">{RUNTIME_LIBRARY.map((e) => <option key={e.name} value={e.name} />)}</datalist>
-            {match && (
+            {match && !locked && (
               <button type="button" onClick={applyLibrary} className="mt-2 inline-flex items-center gap-1.5 text-sm font-bold text-charge-strong bg-charge-soft px-3 py-1.5 rounded-full"><Check className="w-3.5 h-3.5" /> استخدام العضلة/المجموعات/التكرارات القياسية لـ"{match.name}"</button>
             )}
           </Field>
-          {!match && form.name.trim() && (
-            <p className="text-xs text-ink-faint -mt-2">غير موجود في القائمة القياسية — هذا تمرين مخصص، يظهر فقط في خطتك.</p>
+          {match && (
+            <div className={`-mt-2 rounded-2xl p-3 flex items-start gap-2 ${locked ? "bg-mist" : "bg-charge-soft"}`}>
+              {locked ? <Lock className="w-4 h-4 text-ink-faint shrink-0 mt-0.5" /> : <BadgeCheck className="w-4 h-4 text-charge-strong shrink-0 mt-0.5" />}
+              <div className="min-w-0">
+                <LibraryBadge entry={match} />
+                <p className={`text-xs mt-1 ${locked ? "text-ink-faint" : "text-charge-strong"}`}>
+                  {locked ? "تمرين من المكتبة العامة — الاسم والصورة والعضلة ثابتة. المجموعات والتكرارات والوزن والراحة قابلة للتعديل في خطتك فقط." : "هذا تمرينك في المكتبة — أي تعديل يمكن نشره للجميع عند الحفظ."}
+                </p>
+              </div>
+            </div>
           )}
-          {!match?.youtubeId && (
+          {!match && form.name.trim() && (
+            <div className="-mt-2 space-y-2">
+              <p className="text-xs text-ink-faint">غير موجود في المكتبة — هذا تمرين مخصص، يظهر فقط في خطتك.</p>
+              {canSubmitLibrary && (
+                <label className="flex items-start gap-2.5 text-sm text-ink-soft cursor-pointer">
+                  <input type="checkbox" checked={addToLibrary} onChange={(e) => setAddToLibrary(e.target.checked)} className="w-5 h-5 mt-0.5 rounded border-line accent-charge shrink-0" />
+                  <span>{isAdminUser ? "إضافته كتمرين رسمي في المكتبة العامة" : "إضافته للمكتبة العامة ليستفيد الجميع — يبقى تمرينك، تقدر تعدّله لاحقاً"}</span>
+                </label>
+              )}
+            </div>
+          )}
+          {!locked && !match?.youtubeId && (
             <Field label="فيديو (اختياري)">
               <input value={videoUrl} onChange={(e) => { setVideoUrl(e.target.value); setForm((f) => ({ ...f, videoId: parseYoutubeId(e.target.value) })); }} placeholder="ألصق رابط يوتيوب" className={inputClass} />
               {videoUrl && !parseYoutubeId(videoUrl) && <p className="text-xs text-danger mt-1">هذا لا يبدو رابط يوتيوب صحيح</p>}
             </Field>
           )}
-          <Field label="العضلة"><input value={form.muscle} onChange={set("muscle")} placeholder="مثال: المؤخرة الكبرى" className={inputClass} /></Field>
+          <Field label="العضلة"><input value={form.muscle} disabled={locked} onChange={set("muscle")} placeholder="مثال: المؤخرة الكبرى" className={inputClass + (locked ? " opacity-60 cursor-not-allowed" : "")} /></Field>
           <div className="grid grid-cols-3 gap-3">
             <Field label="المجموعات"><input type="number" min="1" inputMode="numeric" value={form.sets} onChange={(e) => setForm((f) => ({ ...f, sets: e.target.value.replace(/[^0-9]/g, "") }))} className={inputClass} /></Field>
             <Field label="التكرارات"><input value={form.reps} onChange={set("reps")} placeholder="8-12" className={inputClass} /></Field>
@@ -793,9 +885,10 @@ function ExerciseModal({ initial, onCancel, onSave, title, isAdminUser }) {
         </div>
         <div className="sticky bottom-0 bg-card flex items-center gap-2 px-5 py-4 border-t border-line">
           <button onClick={onCancel} className="flex-1 py-3.5 rounded-xl text-base font-bold text-ink-soft hover:bg-mist">إلغاء</button>
-          <button disabled={!canSave} onClick={attemptSave} className="flex-1 py-3.5 rounded-xl text-base font-bold bg-charge text-paper disabled:opacity-30 flex items-center justify-center gap-1.5 hover:bg-charge-strong transition-colors"><Check className="w-4 h-4" /> حفظ</button>
+          <button disabled={!canSave || submitBusy} onClick={attemptSave} className="flex-1 py-3.5 rounded-xl text-base font-bold bg-charge text-paper disabled:opacity-30 flex items-center justify-center gap-1.5 hover:bg-charge-strong transition-colors">{submitBusy ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />} حفظ</button>
         </div>
       </div>
+      {pickerOpen && <LibraryPickerSheet onPick={pickFromLibrary} onCancel={() => setPickerOpen(false)} />}
     </div>
   );
 }
@@ -823,7 +916,10 @@ function DetailModal({ ex: item, onCancel }) {
           <p className="px-5 pt-4 text-sm text-ink-faint">لا يوجد فيديو مضاف لهذا التمرين بعد.</p>
         )}
         <div className="p-5 space-y-3">
-          <p className="text-ink-soft">{muscleLabel(item.muscle)}</p>
+          <div className="flex items-center gap-2 flex-wrap">
+            <p className="text-ink-soft">{muscleLabel(item.muscle)}</p>
+            {match && <LibraryBadge entry={match} />}
+          </div>
           <div className="flex flex-wrap items-center gap-2">
             <span className="inline-flex items-center gap-1.5 text-sm font-mono font-bold text-ink bg-mist rounded-full px-3 py-1.5"><Dumbbell className="w-3.5 h-3.5" /> {item.sets} مجموعات · {item.reps}</span>
             <PlateBadge weight={item.weight} size="lg" />
@@ -1232,14 +1328,23 @@ function LibraryEntryModal({ entry, onCancel, onSaved }) {
   const save = async () => {
     setSaving(true);
     const slug = entry.id || slugify(form.name);
-    try { await adminSaveLibraryEntry(slug, { ...form, sets: Number(form.sets) || 1 }); onSaved(); }
+    // A brand-new entry the admin creates here publishes as official.
+    // Editing an existing one never changes who owns it — admins can fix
+    // a user's submission without silently taking it over.
+    const ownership = isNew
+      ? { source: "official", submittedBy: null, submittedByName: null }
+      : { source: entry.source || "official", submittedBy: entry.submittedBy || null, submittedByName: entry.submittedByName || null };
+    try { await saveLibraryEntry(slug, { ...form, sets: Number(form.sets) || 1, ...ownership }); onSaved(); }
     catch (err) { setSaving(false); }
   };
   return (
     <div className="fixed inset-0 z-[70] flex items-end sm:items-center justify-center bg-black/60 backdrop-blur-[2px]" onClick={onCancel}>
       <div className={sheetClass} onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center justify-between px-5 py-4 border-b border-line">
-          <h2 className="text-xl font-black text-ink font-display">{isNew ? "إضافة تمرين للمكتبة" : "تعديل التمرين"}</h2>
+          <div>
+            <h2 className="text-xl font-black text-ink font-display">{isNew ? "إضافة تمرين للمكتبة" : "تعديل التمرين"}</h2>
+            {!isNew && <div className="mt-1"><LibraryBadge entry={entry} /></div>}
+          </div>
           <button onClick={onCancel} className="p-2 -mr-2 rounded-full text-ink-faint hover:bg-mist"><X className="w-5 h-5" /></button>
         </div>
         <BigPhoto image={form.image} onPick={(img) => setForm((f) => ({ ...f, image: img }))} />
@@ -1285,7 +1390,7 @@ function ExerciseLibraryAdmin() {
   const [busyId, setBusyId] = useState(null);
   const load = async () => { setItems(null); try { setItems(await fetchExerciseLibrary()); } catch (err) { setItems([]); } };
   useEffect(() => { load(); }, []);
-  const remove = async (id) => { setBusyId(id); try { await adminDeleteLibraryEntry(id); } catch (err) { /* ignore */ } await load(); setBusyId(null); };
+  const remove = async (id) => { setBusyId(id); try { await deleteLibraryEntry(id); } catch (err) { /* ignore */ } await load(); setBusyId(null); };
   const filtered = (items || []).filter((e) => !q.trim() || e.name.toLowerCase().includes(q.toLowerCase()) || (e.nameAr || "").includes(q));
 
   return (
@@ -1305,6 +1410,7 @@ function ExerciseLibraryAdmin() {
               <p className="font-bold text-sm text-ink truncate">{e.nameAr ? `${e.nameAr} (${e.name})` : e.name}</p>
               <p className="text-xs text-ink-faint truncate">{e.muscleAr || e.muscle}</p>
             </div>
+            <LibraryBadge entry={e} />
             <button onClick={() => setEditing(e)} className="p-2 rounded-lg text-ink-faint hover:text-ink hover:bg-card shrink-0" aria-label="تعديل"><Pencil className="w-3.5 h-3.5" /></button>
             <button disabled={busyId === e.id} onClick={() => remove(e.id)} className="p-2 rounded-lg text-ink-faint hover:text-danger hover:bg-card shrink-0 disabled:opacity-40" aria-label="حذف"><Trash2 className="w-3.5 h-3.5" /></button>
           </div>
@@ -2126,10 +2232,22 @@ const EXERCISE_LIBRARY = [
 // (see AdminPanel's exercise-library section) — remote entries win on a
 // name collision, so an admin edit always takes priority over the seed.
 let RUNTIME_LIBRARY = [...EXERCISE_LIBRARY];
+// Every seed entry (above) and every remote entry with no explicit `source`
+// is treated as "official" — only entries a real user submitted through the
+// app carry source:"user" + submittedBy, which is what the permission model
+// (see ExerciseModal / LibraryPickerSheet) keys off of to decide who owns
+// what and who can edit names/images vs. just sets/reps/weight.
 function mergeRemoteLibrary(remoteItems) {
   const byName = new Map(RUNTIME_LIBRARY.map((e) => [e.name.toLowerCase(), e]));
   remoteItems.forEach((r) => {
-    byName.set(r.name.toLowerCase(), { name: r.name, muscle: r.muscle, sets: r.sets, reps: r.reps, weight: r.weight, rest: r.rest, image: r.image || null, youtubeId: r.youtubeId || null });
+    const isUser = r.source === "user";
+    byName.set(r.name.toLowerCase(), {
+      name: r.name, muscle: r.muscle, sets: r.sets, reps: r.reps, weight: r.weight, rest: r.rest,
+      image: r.image || null, youtubeId: r.youtubeId || null,
+      source: isUser ? "user" : "official",
+      submittedBy: isUser ? (r.submittedBy || null) : null,
+      submittedByName: isUser ? (r.submittedByName || null) : null,
+    });
     // an admin-supplied Arabic name/muscle becomes the new translation —
     // this is the self-serve fix path for any awkward wording, no code
     // change needed
@@ -2143,11 +2261,31 @@ async function fetchExerciseLibrary() {
   const snap = await getDocs(collection(dbase, "exerciseLibrary"));
   return snap.docs.map((d) => ({ id: d.id, ...d.data() }));
 }
-async function adminSaveLibraryEntry(slug, data) {
+// Used by: the admin library manager (editing/creating any entry), and the
+// "push my edit back to the library" flow in ExerciseModal for whoever owns
+// the matched entry (admin for official ones, the original submitter for
+// their own). Firestore rules are the real gate — this just performs the
+// write; a rejected write throws and the caller handles that.
+async function saveLibraryEntry(slug, data) {
   await setDoc(doc(dbase, "exerciseLibrary", slug), { ...data, updatedAt: serverTimestamp() }, { merge: true });
 }
-async function adminDeleteLibraryEntry(slug) {
+async function deleteLibraryEntry(slug) {
   await deleteDoc(doc(dbase, "exerciseLibrary", slug));
+}
+// A regular user adding a brand-new exercise the library doesn't have yet.
+// They own what they submit — source stays "user" so only they (or an
+// admin) can edit it later. Admins get the same button but it publishes as
+// "official" straight away, same as anything else they curate.
+async function submitLibraryEntry(name, data, uid, submitterName, source) {
+  const slug = slugify(name);
+  const payload = {
+    ...data, name,
+    source, submittedBy: source === "user" ? uid : null, submittedByName: source === "user" ? (submitterName || null) : null,
+    createdAt: serverTimestamp(),
+  };
+  await saveLibraryEntry(slug, payload);
+  mergeRemoteLibrary([{ ...payload, createdAt: null }]); // reflect immediately this session, no reload needed
+  return slug;
 }
 function findLibraryMatch(name) {
   const n = (name || "").trim().toLowerCase();
@@ -2155,6 +2293,23 @@ function findLibraryMatch(name) {
   return RUNTIME_LIBRARY.find((e) => e.name.toLowerCase() === n) || null;
 }
 function youtubeEmbedUrl(id) { return `https://www.youtube-nocookie.com/embed/${id}`; }
+
+// Small "official" vs "submitted by X" pill — shown wherever a library
+// entry is visible, so it's always clear whose exercise this is.
+function LibraryBadge({ entry, size = "sm" }) {
+  if (!entry) return null;
+  const isUser = entry.source === "user";
+  const cls = size === "sm" ? "text-[11px] px-2 py-0.5" : "text-xs px-2.5 py-1";
+  return isUser ? (
+    <span className={`inline-flex items-center gap-1 rounded-full font-bold bg-mist text-ink-faint ${cls}`}>
+      <User className="w-3 h-3" /> بواسطة {entry.submittedByName || "مستخدم"}
+    </span>
+  ) : (
+    <span className={`inline-flex items-center gap-1 rounded-full font-bold bg-charge-soft text-charge-strong ${cls}`}>
+      <BadgeCheck className="w-3 h-3" /> رسمي
+    </span>
+  );
+}
 
 const STRETCHES = [
   { name: "تمديد الصدر عند الباب", freq: "بعد كل جلسة", why: "يرخي الصدر والكتف الأمامي المشدودين اللذين يسحبان الكتفين للأمام", hold: "30 ثانية/جانب" },
@@ -3108,7 +3263,7 @@ export default function TrainingLog() {
         </div>
       </nav>
 
-      {modal && <ExerciseModal title={modal.mode === "add" ? "إضافة تمرين" : "تعديل تمرين"} initial={modal.exercise} isAdminUser={isAdminUser} onCancel={() => setModal(null)} onSave={(form) => { if (modal.mode === "add") addExercise(form); else { updateExercise({ ...form, id: modal.exercise.id }); setModal(null); } }} />}
+      {modal && <ExerciseModal title={modal.mode === "add" ? "إضافة تمرين" : "تعديل تمرين"} initial={modal.exercise} isAdminUser={isAdminUser} currentUid={firebaseUser?.uid} canSubmitLibrary={canEdit} authorName={authorName} onCancel={() => setModal(null)} onSave={(form) => { if (modal.mode === "add") addExercise(form); else { updateExercise({ ...form, id: modal.exercise.id }); setModal(null); } }} />}
       {newPlanOpen && <NewPlanModal onCancel={() => setNewPlanOpen(false)} onCreate={createPlan} />}
       {manageDaysOpen && <ManageDaysModal days={plan.days} onCancel={() => setManageDaysOpen(false)} onSave={saveDays} />}
       {syncOpen && <ProfileModal user={firebaseUser} authorName={authorName} onCancel={() => setSyncOpen(false)} onSignIn={doSignIn} onUpgrade={doUpgrade} onSignOut={doSignOut} status={syncStatus} error={syncError} />}
