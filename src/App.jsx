@@ -517,6 +517,20 @@ async function checkAndBumpRateLimit(uid, kind, max, windowMs) {
 // ---- Shared UI ----
 
 function Field({ label, children }) { return <div><label className="block text-sm font-bold text-ink-soft mb-1.5">{label}</label>{children}</div>; }
+// Shared error readout — shows the real Firestore error instead of a
+// generic "something went wrong", plus a nudge toward the #1 actual cause
+// (firestore.rules edited locally but never re-published in the Firebase
+// console) whenever the message looks like a permission problem.
+function ErrHint({ msg }) {
+  if (!msg) return null;
+  const isPerm = String(msg).toLowerCase().includes("permission") || String(msg).toLowerCase().includes("insufficient");
+  return (
+    <div className="text-xs text-danger mb-2">
+      <p className="font-mono break-words">{msg}</p>
+      {isPerm && <p className="text-danger/80 mt-1">خطأ صلاحيات — الأرجح أن قواعد Firestore في Firebase Console ليست آخر نسخة من firestore.rules. افتح Firestore Database ← Rules، الصق المحتوى الحالي، واضغط Publish من جديد.</p>}
+    </div>
+  );
+}
 const inputClass = "w-full rounded-xl border border-line px-4 py-3 text-base bg-mist text-ink placeholder:text-ink-faint focus:outline-none focus:ring-2 focus:ring-charge focus:border-charge transition-shadow";
 const sheetClass = "bg-card w-full sm:max-w-md sm:rounded-2xl rounded-t-2xl max-h-[92vh] overflow-y-auto border border-line shadow-2xl";
 
@@ -1130,42 +1144,44 @@ function ShareModal({ plan, user, authorName, onCancel, onPatchPlan }) {
   const [description, setDescription] = useState(plan.description || "");
   const [pubState, setPubState] = useState("idle");
   const [codeState, setCodeState] = useState("idle");
+  const [pubErr, setPubErr] = useState(null);
+  const [codeErr, setCodeErr] = useState(null);
   const [copied, setCopied] = useState(false);
   const [announce, setAnnounce] = useState(false);
 
   const isLive = !!plan.publicShareId;
 
   const submitPublic = async () => {
-    setPubState("sending");
+    setPubState("sending"); setPubErr(null);
     try {
       const ok = await checkAndBumpRateLimit(user.uid, "submissions", 3, 60 * 60 * 1000);
       if (!ok) { setPubState("limited"); return; }
       const id = await submitPlanForReview(plan, user.uid, authorName, description); onPatchPlan({ publicShareId: id, publicApproved: false }); setPubState("sent");
     }
-    catch (err) { setPubState("error"); }
+    catch (err) { setPubState("error"); setPubErr(err?.message || String(err)); }
   };
   const pushUpdate = async () => {
-    setPubState("sending");
+    setPubState("sending"); setPubErr(null);
     try { await updateSharedPlanContent(plan.publicShareId, plan, description, announce); setPubState("sent"); }
-    catch (err) { setPubState("error"); }
+    catch (err) { setPubState("error"); setPubErr(err?.message || String(err)); }
   };
   const withdrawPublic = async () => {
     if (!plan.publicShareId) return;
-    setPubState("sending");
+    setPubState("sending"); setPubErr(null);
     try { await stopSharingPlan(plan.publicShareId); onPatchPlan({ publicShareId: null, publicApproved: null }); setPubState("idle"); }
-    catch (err) { setPubState("error"); }
+    catch (err) { setPubState("error"); setPubErr(err?.message || String(err)); }
   };
 
   const generateCode = async () => {
-    setCodeState("sending");
+    setCodeState("sending"); setCodeErr(null);
     try { const code = await shareplanByCode(plan, user.uid, authorName, description); onPatchPlan({ shareCode: code }); setCodeState("idle"); }
-    catch (err) { setCodeState("error"); }
+    catch (err) { setCodeState("error"); setCodeErr(err?.message || String(err)); }
   };
   const revokeCode = async () => {
     if (!plan.shareCode) return;
-    setCodeState("sending");
+    setCodeState("sending"); setCodeErr(null);
     try { await stopSharingPlan(plan.shareCode); onPatchPlan({ shareCode: null }); setCodeState("idle"); }
-    catch (err) { setCodeState("error"); }
+    catch (err) { setCodeState("error"); setCodeErr(err?.message || String(err)); }
   };
   const copyCode = () => { navigator.clipboard?.writeText(plan.shareCode).then(() => { setCopied(true); setTimeout(() => setCopied(false), 1500); }); };
   const saveDescription = () => onPatchPlan({ description });
@@ -1202,7 +1218,7 @@ function ShareModal({ plan, user, authorName, onCancel, onPatchPlan }) {
                 {codeState === "sending" ? "جارٍ التوليد…" : "توليد رمز"}
               </button>
             )}
-            {codeState === "error" && <p className="text-xs text-danger mt-2">حدث خطأ ما — حاول مرة أخرى.</p>}
+            {codeState === "error" && <ErrHint msg={codeErr} />}
           </div>
 
           <div className="rounded-2xl border border-line p-4">
@@ -1215,7 +1231,7 @@ function ShareModal({ plan, user, authorName, onCancel, onPatchPlan }) {
                   <input type="checkbox" checked={announce} onChange={(e) => setAnnounce(e.target.checked)} className="w-4 h-4 rounded border-line accent-charge" />
                   إظهار شارة "تم التحديث" للمستخدمين
                 </label>
-                {pubState === "error" && <p className="text-xs text-danger mb-2">حدث خطأ ما — حاول مرة أخرى.</p>}
+                {pubState === "error" && <ErrHint msg={pubErr} />}
                 {pubState === "sent" && <p className="text-xs text-charge mb-2">تم التحديث.</p>}
                 <div className="flex gap-2">
                   <button disabled={pubState === "sending"} onClick={pushUpdate} className="flex-1 py-3 rounded-xl text-sm font-bold bg-mist text-ink hover:bg-line/60 disabled:opacity-40 transition-colors">
@@ -1230,7 +1246,7 @@ function ShareModal({ plan, user, authorName, onCancel, onPatchPlan }) {
                   <div className="rounded-xl bg-charge-soft border border-charge/20 p-3 text-sm text-charge flex items-center gap-2"><Check className="w-4 h-4 shrink-0" /> تم الإرسال — ستظهر في المجتمع بعد الموافقة.</div>
                 ) : (
                   <>
-                    {pubState === "error" && <p className="text-xs text-danger mb-2">حدث خطأ ما — حاول مرة أخرى.</p>}
+                    {pubState === "error" && <ErrHint msg={pubErr} />}
                     {pubState === "limited" && <p className="text-xs text-danger mb-2">عدد كبير من الإرسالات خلال ساعة — حاول لاحقًا.</p>}
                     <button disabled={pubState === "sending"} onClick={submitPublic} className="w-full py-3 rounded-xl text-sm font-bold bg-mist text-ink hover:bg-line/60 disabled:opacity-40 transition-colors">
                       {pubState === "sending" ? "جارٍ الإرسال…" : "إرسال للمراجعة"}
@@ -1383,25 +1399,74 @@ function LibraryEntryModal({ entry, onCancel, onSaved }) {
   );
 }
 
+// Browse the built-in seed catalog (145+ common exercises) to quickly add
+// one to the real, admin-managed library instead of typing every field
+// from scratch. Only shows candidates NOT already saved — once added, an
+// entry drops out of this list on its own (existingNames is recomputed
+// from `items` after every save).
+function AddFromCatalogSheet({ existingNames, onPick, onCancel }) {
+  const [q, setQ] = useState("");
+  const query = q.trim().toLowerCase();
+  const candidates = EXERCISE_LIBRARY.filter((e) => !existingNames.has(e.name.toLowerCase()));
+  const results = candidates.filter((e) => !query || e.name.toLowerCase().includes(query) || (e.muscle || "").toLowerCase().includes(query)).sort((a, b) => a.name.localeCompare(b.name));
+  return (
+    <div className="fixed inset-0 z-[65] flex items-end sm:items-center justify-center bg-black/60 backdrop-blur-[2px]" onClick={onCancel}>
+      <div className={sheetClass} onClick={(e) => e.stopPropagation()}>
+        <div className="sticky top-0 bg-card px-5 py-4 border-b border-line z-10">
+          <div className="flex items-center justify-between mb-3">
+            <div>
+              <h3 className="font-display font-black text-lg text-ink">إضافة من القائمة القياسية</h3>
+              <p className="text-xs text-ink-faint mt-0.5">{candidates.length} تمرين لم يُضف بعد</p>
+            </div>
+            <button onClick={onCancel} className="p-2 -mr-2 rounded-full text-ink-faint hover:bg-mist"><X className="w-5 h-5" /></button>
+          </div>
+          <div className="relative">
+            <Search className="w-4 h-4 text-ink-faint absolute right-3.5 top-1/2 -translate-y-1/2" />
+            <input autoFocus value={q} onChange={(e) => setQ(e.target.value)} placeholder="ابحث…" className={inputClass + " pr-10"} />
+          </div>
+        </div>
+        <div className="p-3 space-y-1.5 max-h-[60vh] overflow-y-auto">
+          {results.length === 0 && <p className="text-sm text-ink-faint text-center py-8">{candidates.length === 0 ? "كل عناصر القائمة القياسية مُضافة بالفعل." : "لا نتائج."}</p>}
+          {results.map((e) => (
+            <button key={e.name} type="button" onClick={() => onPick(e)} className="w-full flex items-center gap-3 p-2.5 rounded-2xl text-left hover:bg-mist transition-colors">
+              <div className="w-11 h-11 rounded-lg bg-mist flex items-center justify-center shrink-0"><Dumbbell className="w-4 h-4 text-ink-faint" /></div>
+              <div className="flex-1 min-w-0">
+                <p className="font-bold text-sm text-ink truncate">{exLabel(e.name)}</p>
+                <p className="text-xs text-ink-faint truncate">{muscleLabel(e.muscle)}</p>
+              </div>
+              <Plus className="w-4 h-4 text-charge shrink-0" />
+            </button>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function ExerciseLibraryAdmin() {
   const [items, setItems] = useState(null);
   const [editing, setEditing] = useState(null); // null | {} (new) | entry (edit)
+  const [catalogOpen, setCatalogOpen] = useState(false);
   const [q, setQ] = useState("");
   const [busyId, setBusyId] = useState(null);
   const load = async () => { setItems(null); try { setItems(await fetchExerciseLibrary()); } catch (err) { setItems([]); } };
   useEffect(() => { load(); }, []);
   const remove = async (id) => { setBusyId(id); try { await deleteLibraryEntry(id); } catch (err) { /* ignore */ } await load(); setBusyId(null); };
   const filtered = (items || []).filter((e) => !q.trim() || e.name.toLowerCase().includes(q.toLowerCase()) || (e.nameAr || "").includes(q));
+  const existingNames = new Set((items || []).map((e) => e.name.toLowerCase()));
 
   return (
     <div className="rounded-2xl border border-line bg-card p-4">
       <div className="flex items-center justify-between mb-3">
         <p className="text-xs font-bold text-ink-faint uppercase tracking-wide">مكتبة التمارين (صور وفيديوهات)</p>
-        <button onClick={() => setEditing({})} className="text-sm font-bold text-charge flex items-center gap-1 hover:text-charge-strong"><Plus className="w-4 h-4" /> إضافة</button>
+        <div className="flex items-center gap-3 shrink-0">
+          <button onClick={() => setCatalogOpen(true)} className="text-sm font-bold text-ink-faint flex items-center gap-1 hover:text-ink"><ListFilter className="w-4 h-4" /> من القائمة</button>
+          <button onClick={() => setEditing({})} className="text-sm font-bold text-charge flex items-center gap-1 hover:text-charge-strong"><Plus className="w-4 h-4" /> إضافة</button>
+        </div>
       </div>
       {items && items.length > 0 && <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="بحث…" className={inputClass + " mb-3 text-sm py-2"} />}
       {items === null && <p className="text-sm text-ink-faint flex items-center gap-2"><Loader2 className="w-4 h-4 animate-spin" /> جارٍ التحميل…</p>}
-      {items?.length === 0 && <p className="text-sm text-ink-faint">لا توجد عناصر بعد — أضف أول تمرين.</p>}
+      {items?.length === 0 && <p className="text-sm text-ink-faint">لا توجد عناصر بعد — أضف أول تمرين، أو استورد من القائمة القياسية.</p>}
       <div className="space-y-2 max-h-96 overflow-y-auto">
         {filtered.map((e) => (
           <div key={e.id} className="rounded-xl bg-mist p-2.5 flex items-center gap-2.5">
@@ -1417,9 +1482,17 @@ function ExerciseLibraryAdmin() {
         ))}
       </div>
       {editing && <LibraryEntryModal entry={editing} onCancel={() => setEditing(null)} onSaved={() => { setEditing(null); load(); }} />}
+      {catalogOpen && (
+        <AddFromCatalogSheet
+          existingNames={existingNames}
+          onCancel={() => setCatalogOpen(false)}
+          onPick={(e) => { setCatalogOpen(false); setEditing({ name: e.name, muscle: e.muscle, sets: e.sets, reps: e.reps, weight: e.weight, rest: e.rest, image: null, youtubeId: null }); }}
+        />
+      )}
     </div>
   );
 }
+
 
 function AdminPanel({ user, contentEditMode, onToggleContentEditMode, onPreviewTutorial }) {
   const [pending, setPending] = useState(null);
@@ -1468,13 +1541,8 @@ function AdminPanel({ user, contentEditMode, onToggleContentEditMode, onPreviewT
       {(loadErr || actionErr) && (
         <div className="rounded-2xl border border-danger/40 bg-danger-soft p-3.5">
           <p className="text-xs font-bold text-danger mb-1">{actionErr ? "فشل الإجراء:" : "فشل التحميل:"}</p>
-          <p className="text-xs text-danger font-mono break-words mb-1.5">{actionErr || loadErr}</p>
+          <ErrHint msg={actionErr || loadErr} />
           <p className="text-[10px] text-danger/70 font-mono break-all">uid: {user.uid}</p>
-          {String(actionErr || loadErr).toLowerCase().includes("permission") && (
-            <p className="text-[11px] text-danger/90 mt-1.5">
-              خطأ صلاحيات رغم أنك أدمن؟ الأرجح أن قواعد Firestore المنشورة في Firebase Console ليست آخر نسخة — افتح Firestore Database ← Rules، تأكد أن المحتوى مطابق لملف firestore.rules، ثم اضغط Publish من جديد (حتى لو بدا مطابقاً) وانتظر دقيقة.
-            </p>
-          )}
         </div>
       )}
 
@@ -2226,6 +2294,94 @@ const EXERCISE_LIBRARY = [
   { name: "Arnold press", muscle: "Delts (front/side)", sets: 3, reps: "8-12", weight: "Medium", rest: "90 sec", image: null, youtubeId: null },
   { name: "Rear delt fly", muscle: "Rear delt", sets: 3, reps: "12-15", weight: "Light", rest: "60 sec", image: null, youtubeId: null },
   { name: "Chin-up", muscle: "Back / biceps", sets: 3, reps: "max reps", weight: "Heavy", rest: "2 min", image: null, youtubeId: null },
+  // ---- expanded catalog — common gym exercises not covered above, added
+  // so the admin has a genuinely broad list to pick from in "إضافة من
+  // القائمة القياسية" instead of typing every entry from scratch. ----
+  { name: "Cable fly (low-to-high)", muscle: "Chest (upper)", sets: 3, reps: "12-15", weight: "Light-Medium", rest: "60 sec", image: null, youtubeId: null },
+  { name: "Cable fly (high-to-low)", muscle: "Chest (lower)", sets: 3, reps: "12-15", weight: "Light-Medium", rest: "60 sec", image: null, youtubeId: null },
+  { name: "Machine chest press", muscle: "Chest", sets: 3, reps: "8-12", weight: "Medium-Heavy", rest: "90 sec", image: null, youtubeId: null },
+  { name: "Decline bench press", muscle: "Chest (lower)", sets: 3, reps: "8-10", weight: "Heavy", rest: "2 min", image: null, youtubeId: null },
+  { name: "Incline cable fly", muscle: "Chest (upper)", sets: 3, reps: "12-15", weight: "Light-Medium", rest: "60 sec", image: null, youtubeId: null },
+  { name: "Pec-deck fly", muscle: "Chest", sets: 3, reps: "12-15", weight: "Light-Medium", rest: "60 sec", image: null, youtubeId: null },
+  { name: "Landmine press", muscle: "Chest (upper) / front delt", sets: 3, reps: "8-12", weight: "Medium", rest: "90 sec", image: null, youtubeId: null },
+  { name: "T-bar row", muscle: "Back", sets: 3, reps: "8-10", weight: "Heavy", rest: "2 min", image: null, youtubeId: null },
+  { name: "Meadows row", muscle: "Back / lats", sets: 3, reps: "8-12/side", weight: "Medium-Heavy", rest: "90 sec", image: null, youtubeId: null },
+  { name: "Pendlay row", muscle: "Back", sets: 3, reps: "6-8", weight: "Heavy", rest: "2 min", image: null, youtubeId: null },
+  { name: "Inverted row", muscle: "Back", sets: 3, reps: "8-15", weight: "Medium", rest: "90 sec", image: null, youtubeId: null },
+  { name: "Machine row", muscle: "Back", sets: 3, reps: "10-12", weight: "Medium", rest: "90 sec", image: null, youtubeId: null },
+  { name: "Wide-grip pull-up", muscle: "Back (lats)", sets: 3, reps: "max reps", weight: "Heavy", rest: "2 min", image: null, youtubeId: null },
+  { name: "Neutral-grip pull-up", muscle: "Back / biceps", sets: 3, reps: "max reps", weight: "Heavy", rest: "2 min", image: null, youtubeId: null },
+  { name: "Rack pull", muscle: "Back / posterior chain", sets: 3, reps: "5-8", weight: "Heavy", rest: "2.5 min", image: null, youtubeId: null },
+  { name: "Good morning", muscle: "Hamstrings / lower back", sets: 3, reps: "8-10", weight: "Medium", rest: "2 min", image: null, youtubeId: null },
+  { name: "Hyperextension (back extension)", muscle: "Lower back / glutes", sets: 3, reps: "12-15", weight: "Light-Medium", rest: "60 sec", image: null, youtubeId: null },
+  { name: "Seal row", muscle: "Back", sets: 3, reps: "8-12", weight: "Medium-Heavy", rest: "90 sec", image: null, youtubeId: null },
+  { name: "Cable seated row (single arm)", muscle: "Back", sets: 3, reps: "10-12/side", weight: "Medium", rest: "90 sec", image: null, youtubeId: null },
+  { name: "Machine shoulder press", muscle: "Delts (front)", sets: 3, reps: "8-12", weight: "Medium-Heavy", rest: "90 sec", image: null, youtubeId: null },
+  { name: "Seated dumbbell shoulder press", muscle: "Delts (front)", sets: 3, reps: "8-12", weight: "Medium-Heavy", rest: "90 sec", image: null, youtubeId: null },
+  { name: "Upright row", muscle: "Delts (side) / traps", sets: 3, reps: "10-12", weight: "Medium", rest: "60 sec", image: null, youtubeId: null },
+  { name: "Cable rear-delt fly", muscle: "Rear delt", sets: 3, reps: "12-15", weight: "Light-Medium", rest: "60 sec", image: null, youtubeId: null },
+  { name: "Machine lateral raise", muscle: "Delts (side)", sets: 3, reps: "12-15", weight: "Light-Medium", rest: "60 sec", image: null, youtubeId: null },
+  { name: "Bent-over dumbbell rear delt raise", muscle: "Rear delt", sets: 3, reps: "12-15", weight: "Light", rest: "60 sec", image: null, youtubeId: null },
+  { name: "Behind-the-neck press", muscle: "Delts", sets: 3, reps: "8-10", weight: "Medium", rest: "2 min", image: null, youtubeId: null },
+  { name: "Shrug (machine)", muscle: "Traps", sets: 3, reps: "10-15", weight: "Medium-Heavy", rest: "90 sec", image: null, youtubeId: null },
+  { name: "Incline dumbbell curl", muscle: "Biceps", sets: 3, reps: "10-12", weight: "Light-Medium", rest: "60 sec", image: null, youtubeId: null },
+  { name: "Concentration curl", muscle: "Biceps", sets: 3, reps: "10-12", weight: "Light-Medium", rest: "60 sec", image: null, youtubeId: null },
+  { name: "Cable curl (bar)", muscle: "Biceps", sets: 3, reps: "10-12", weight: "Medium", rest: "60 sec", image: null, youtubeId: null },
+  { name: "Spider curl", muscle: "Biceps", sets: 3, reps: "10-12", weight: "Medium", rest: "60 sec", image: null, youtubeId: null },
+  { name: "Drag curl", muscle: "Biceps", sets: 3, reps: "10-12", weight: "Medium", rest: "60 sec", image: null, youtubeId: null },
+  { name: "21s bicep curl", muscle: "Biceps", sets: 2, reps: "21 (7-7-7)", weight: "Light-Medium", rest: "90 sec", image: null, youtubeId: null },
+  { name: "Overhead cable triceps extension", muscle: "Triceps", sets: 3, reps: "10-12", weight: "Medium", rest: "60 sec", image: null, youtubeId: null },
+  { name: "Rope pushdown", muscle: "Triceps", sets: 3, reps: "10-15", weight: "Medium", rest: "60 sec", image: null, youtubeId: null },
+  { name: "Diamond push-up", muscle: "Triceps / chest", sets: 3, reps: "max reps", weight: "Light", rest: "60 sec", image: null, youtubeId: null },
+  { name: "Dumbbell kickback", muscle: "Triceps", sets: 3, reps: "12-15", weight: "Light", rest: "45 sec", image: null, youtubeId: null },
+  { name: "JM press", muscle: "Triceps", sets: 3, reps: "8-10", weight: "Medium-Heavy", rest: "90 sec", image: null, youtubeId: null },
+  { name: "Wrist curl", muscle: "Forearms", sets: 3, reps: "12-15", weight: "Light-Medium", rest: "45 sec", image: null, youtubeId: null },
+  { name: "Reverse wrist curl", muscle: "Forearms", sets: 3, reps: "12-15", weight: "Light-Medium", rest: "45 sec", image: null, youtubeId: null },
+  { name: "Plate pinch hold", muscle: "Forearms / grip", sets: 3, reps: "20-30 sec", weight: "Medium", rest: "60 sec", image: null, youtubeId: null },
+  { name: "Dead hang", muscle: "Forearms / grip", sets: 3, reps: "30-45 sec", weight: "Light", rest: "60 sec", image: null, youtubeId: null },
+  { name: "Sumo deadlift", muscle: "Posterior chain / glutes", sets: 3, reps: "5-6", weight: "Heavy", rest: "3 min", image: null, youtubeId: null },
+  { name: "Trap bar deadlift", muscle: "Posterior chain", sets: 3, reps: "5-6", weight: "Heavy", rest: "3 min", image: null, youtubeId: null },
+  { name: "Zercher squat", muscle: "Quads / core", sets: 3, reps: "6-8", weight: "Heavy", rest: "2.5 min", image: null, youtubeId: null },
+  { name: "Box squat", muscle: "Quads / glutes", sets: 3, reps: "6-8", weight: "Heavy", rest: "2.5 min", image: null, youtubeId: null },
+  { name: "Pause squat", muscle: "Quads / glutes", sets: 3, reps: "5-6", weight: "Heavy", rest: "2.5 min", image: null, youtubeId: null },
+  { name: "Sissy squat", muscle: "Quads", sets: 3, reps: "10-15", weight: "Light", rest: "60 sec", image: null, youtubeId: null },
+  { name: "Smith machine squat", muscle: "Quads / glutes", sets: 3, reps: "8-12", weight: "Medium-Heavy", rest: "2 min", image: null, youtubeId: null },
+  { name: "Nordic hamstring curl", muscle: "Hamstrings", sets: 3, reps: "6-10", weight: "Heavy", rest: "90 sec", image: null, youtubeId: null },
+  { name: "Seated leg curl", muscle: "Hamstrings", sets: 3, reps: "10-12", weight: "Medium", rest: "90 sec", image: null, youtubeId: null },
+  { name: "Stiff-leg deadlift", muscle: "Hamstrings", sets: 3, reps: "8-10", weight: "Heavy", rest: "2 min", image: null, youtubeId: null },
+  { name: "Single-leg Romanian deadlift", muscle: "Hamstrings / glutes / balance", sets: 3, reps: "8-10/leg", weight: "Medium", rest: "90 sec", image: null, youtubeId: null },
+  { name: "Reverse lunge", muscle: "Glutes / quads", sets: 3, reps: "10-12/leg", weight: "Medium", rest: "90 sec", image: null, youtubeId: null },
+  { name: "Lateral lunge", muscle: "Glutes / adductors", sets: 3, reps: "10-12/leg", weight: "Medium", rest: "90 sec", image: null, youtubeId: null },
+  { name: "Curtsy lunge", muscle: "Glute medius / quads", sets: 3, reps: "10-12/leg", weight: "Light-Medium", rest: "60 sec", image: null, youtubeId: null },
+  { name: "Single-leg hip thrust", muscle: "Glute max", sets: 3, reps: "10-12/leg", weight: "Medium", rest: "90 sec", image: null, youtubeId: null },
+  { name: "Frog pump", muscle: "Glute max", sets: 3, reps: "15-20", weight: "Light-Medium", rest: "60 sec", image: null, youtubeId: null },
+  { name: "Cable pull-through", muscle: "Glutes / hamstrings", sets: 3, reps: "12-15", weight: "Medium", rest: "60 sec", image: null, youtubeId: null },
+  { name: "Banded lateral walk", muscle: "Glute medius", sets: 3, reps: "15-20/side", weight: "Light", rest: "45 sec", image: null, youtubeId: null },
+  { name: "Adductor machine", muscle: "Adductors", sets: 3, reps: "12-15", weight: "Medium", rest: "45 sec", image: null, youtubeId: null },
+  { name: "Abductor machine", muscle: "Glute medius", sets: 3, reps: "15-20", weight: "Light-Medium", rest: "45 sec", image: null, youtubeId: null },
+  { name: "Donkey calf raise", muscle: "Calves", sets: 4, reps: "12-15", weight: "Medium", rest: "60 sec", image: null, youtubeId: null },
+  { name: "Single-leg calf raise", muscle: "Calves", sets: 3, reps: "12-15/leg", weight: "Light-Medium", rest: "45 sec", image: null, youtubeId: null },
+  { name: "Jump rope", muscle: "Calves / cardio", sets: 3, reps: "1-2 min", weight: "Light", rest: "45 sec", image: null, youtubeId: null },
+  { name: "Sit-up", muscle: "Core", sets: 3, reps: "15-20", weight: "Light", rest: "45 sec", image: null, youtubeId: null },
+  { name: "V-up", muscle: "Core", sets: 3, reps: "12-15", weight: "Light", rest: "45 sec", image: null, youtubeId: null },
+  { name: "Mountain climber", muscle: "Core / cardio", sets: 3, reps: "30-40 sec", weight: "Light", rest: "45 sec", image: null, youtubeId: null },
+  { name: "Dead bug", muscle: "Core", sets: 3, reps: "10-12/side", weight: "Light", rest: "45 sec", image: null, youtubeId: null },
+  { name: "Bird dog", muscle: "Core / lower back", sets: 3, reps: "10-12/side", weight: "Light", rest: "45 sec", image: null, youtubeId: null },
+  { name: "Woodchopper (cable)", muscle: "Core (obliques)", sets: 3, reps: "10-12/side", weight: "Medium", rest: "60 sec", image: null, youtubeId: null },
+  { name: "Landmine rotation", muscle: "Core (obliques)", sets: 3, reps: "10-12/side", weight: "Light-Medium", rest: "60 sec", image: null, youtubeId: null },
+  { name: "Toes to bar", muscle: "Core", sets: 3, reps: "8-12", weight: "Heavy", rest: "90 sec", image: null, youtubeId: null },
+  { name: "Barbell rollout", muscle: "Core", sets: 3, reps: "8-12", weight: "Medium", rest: "60 sec", image: null, youtubeId: null },
+  { name: "Clean and press", muscle: "Full body", sets: 4, reps: "3-5", weight: "Heavy", rest: "3 min", image: null, youtubeId: null },
+  { name: "Power clean", muscle: "Full body / posterior chain", sets: 4, reps: "3-5", weight: "Heavy", rest: "3 min", image: null, youtubeId: null },
+  { name: "Snatch", muscle: "Full body", sets: 4, reps: "3-5", weight: "Heavy", rest: "3 min", image: null, youtubeId: null },
+  { name: "Kettlebell swing", muscle: "Glutes / hamstrings / core", sets: 3, reps: "15-20", weight: "Medium", rest: "60 sec", image: null, youtubeId: null },
+  { name: "Turkish get-up", muscle: "Full body / core", sets: 3, reps: "3-5/side", weight: "Light-Medium", rest: "90 sec", image: null, youtubeId: null },
+  { name: "Battle ropes", muscle: "Shoulders / cardio", sets: 4, reps: "20-30 sec", weight: "Light", rest: "45 sec", image: null, youtubeId: null },
+  { name: "Sled push", muscle: "Quads / glutes / cardio", sets: 4, reps: "20-30m", weight: "Heavy", rest: "90 sec", image: null, youtubeId: null },
+  { name: "Sled drag (backward)", muscle: "Quads", sets: 3, reps: "20-30m", weight: "Medium", rest: "90 sec", image: null, youtubeId: null },
+  { name: "Tire flip", muscle: "Full body", sets: 3, reps: "6-10", weight: "Heavy", rest: "2 min", image: null, youtubeId: null },
+  { name: "Neck curl", muscle: "Neck", sets: 3, reps: "12-15", weight: "Light", rest: "45 sec", image: null, youtubeId: null },
+  { name: "Neck extension", muscle: "Neck", sets: 3, reps: "12-15", weight: "Light", rest: "45 sec", image: null, youtubeId: null },
 ];
 // The hardcoded list above is the offline-safe seed. Once the app loads,
 // this gets merged with whatever the admin has added/fixed in Firestore
