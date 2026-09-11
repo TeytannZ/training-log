@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback, useReducer, useContext, createContext } from "react";
 import { initializeApp, getApps } from "firebase/app";
 import { getAuth, GoogleAuthProvider, signInAnonymously, linkWithPopup, onAuthStateChanged, signInWithPopup, signInWithRedirect, signOut, createUserWithEmailAndPassword, signInWithEmailAndPassword } from "firebase/auth";
-import { getFirestore, doc, getDoc, setDoc, deleteDoc, collection, query, where, getDocs, addDoc, serverTimestamp, onSnapshot, runTransaction } from "firebase/firestore";
+import { getFirestore, doc, getDoc, setDoc, deleteDoc, collection, query, where, getDocs, addDoc, serverTimestamp, onSnapshot, runTransaction, writeBatch } from "firebase/firestore";
 import {
   Plus, Pencil, Trash2, Camera, X, Check, Star, Dumbbell,
   Loader2, ChevronDown, Search, Download, Upload, ChevronRight,
@@ -787,7 +787,7 @@ function ExerciseModal({ initial, onCancel, onSave, title, isAdminUser, currentU
   const set = (k) => (e) => setForm((f) => ({ ...f, [k]: e.target.value }));
   const canSave = form.name.trim().length > 0 && form.muscle.trim().length > 0 && form.reps.trim().length > 0;
   const searchUrl = `https://www.google.com/search?tbm=isch&q=${encodeURIComponent((form.name || "exercise") + " exercise proper form")}`;
-  const match = findLibraryMatch(form.name);
+  const match = findLibraryById(initial.libraryId) || findLibraryMatch(form.name);
   // Ownership: admins own every entry; a regular user owns only what they
   // personally submitted. Everyone else gets a read-only name/muscle/photo
   // for a matched entry — sets/reps/weight/rest stay theirs to tune locally.
@@ -795,10 +795,10 @@ function ExerciseModal({ initial, onCancel, onSave, title, isAdminUser, currentU
   const locked = !!match && !isOwner;
   const applyLibrary = () => {
     if (!match) return;
-    setForm((f) => ({ ...f, muscle: match.muscle, sets: match.sets, reps: match.reps, weight: match.weight, rest: match.rest, image: f.image || match.image }));
+    setForm((f) => ({ ...f, muscle: match.muscle, sets: match.sets, reps: match.reps, weight: match.weight, rest: match.rest, image: f.image || match.image, libraryId: slugify(match.name) }));
   };
   const pickFromLibrary = (entry) => {
-    setForm((f) => ({ ...f, name: entry.name, muscle: entry.muscle, sets: entry.sets, reps: entry.reps, weight: entry.weight, rest: entry.rest, image: entry.image || f.image, videoId: entry.youtubeId || f.videoId }));
+    setForm((f) => ({ ...f, name: entry.name, muscle: entry.muscle, sets: entry.sets, reps: entry.reps, weight: entry.weight, rest: entry.rest, image: entry.image || f.image, videoId: entry.youtubeId || f.videoId, libraryId: slugify(entry.name) }));
     if (entry.youtubeId) setVideoUrl(`https://youtu.be/${entry.youtubeId}`);
     setPickerOpen(false);
   };
@@ -809,7 +809,7 @@ function ExerciseModal({ initial, onCancel, onSave, title, isAdminUser, currentU
   const divergesFromLibrary = isOwner && match && (
     form.muscle !== match.muscle || Number(form.sets) !== match.sets || form.reps !== match.reps || form.weight !== match.weight || form.rest !== match.rest || (form.image || null) !== (match.image || null)
   );
-  const finalize = () => onSave({ ...form, sets: Number(form.sets) || 1 });
+  const finalize = () => onSave({ ...form, sets: Number(form.sets) || 1, libraryId: match ? slugify(match.name) : null });
   const attemptSave = async () => {
     if (!canSave) return;
     if (!match && addToLibrary && canSubmitLibrary) {
@@ -955,16 +955,17 @@ function ExerciseModal({ initial, onCancel, onSave, title, isAdminUser, currentU
 }
 
 function DetailModal({ ex: item, onCancel }) {
-  const match = findLibraryMatch(item.name);
-  const videoId = item.videoId || match?.youtubeId;
+  const live = resolveLive(item);
+  const match = live.match;
+  const videoId = live.youtubeId;
   return (
     <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/60 backdrop-blur-[2px]" onClick={onCancel}>
       <div className={sheetClass} onClick={(e) => e.stopPropagation()}>
         <div className="sticky top-0 bg-card flex items-center justify-between px-5 py-4 border-b border-line z-10">
-          <h2 className="text-xl font-black text-ink font-display">{exLabel(item.name)}</h2>
+          <h2 className="text-xl font-black text-ink font-display">{exLabel(live.name)}</h2>
           <button onClick={onCancel} className="p-2 -mr-2 rounded-full text-ink-faint hover:bg-mist"><X className="w-5 h-5" /></button>
         </div>
-        {item.image ? <img src={item.image} alt="" className="w-full aspect-square object-cover" /> : (
+        {live.image ? <img src={live.image} alt="" className="w-full aspect-square object-cover" /> : (
           <div className="w-full aspect-[16/9] bg-mist flex items-center justify-center"><Dumbbell className="w-10 h-10 text-ink-faint" /></div>
         )}
         {videoId ? (
@@ -978,7 +979,7 @@ function DetailModal({ ex: item, onCancel }) {
         )}
         <div className="p-5 space-y-3">
           <div className="flex items-center gap-2 flex-wrap">
-            <p className="text-ink-soft">{muscleLabel(item.muscle)}</p>
+            <p className="text-ink-soft">{muscleLabel(live.muscle)}</p>
             {match && <LibraryBadge entry={match} />}
           </div>
           <div className="flex flex-wrap items-center gap-2">
@@ -1004,11 +1005,12 @@ function DetailModal({ ex: item, onCancel }) {
 // photos to scroll past.
 function ExerciseCard({ ex: item, onOpenEdit, onDelete, onQuickPhoto, readOnly }) {
   const [detailOpen, setDetailOpen] = useState(false);
+  const live = resolveLive(item);
   return (
     <div className={`rounded-2xl bg-card border overflow-hidden transition-colors ${item.focus ? "border-charge/40" : "border-line"}`}>
       <div className="flex gap-3 p-3">
         <div className="relative">
-          <BigPhoto image={item.image} onPick={onQuickPhoto} readOnly={readOnly} variant="thumb" />
+          <BigPhoto image={live.image} onPick={onQuickPhoto} readOnly={readOnly || !!live.match} variant="thumb" />
           {item.focus && (
             <span className="absolute -top-1.5 -left-1.5 inline-flex items-center justify-center w-5 h-5 rounded-full bg-charge text-paper shadow" title="عضلة تركيز">
               <Star className="w-3 h-3 fill-ink" />
@@ -1018,8 +1020,8 @@ function ExerciseCard({ ex: item, onOpenEdit, onDelete, onQuickPhoto, readOnly }
         <div className="flex-1 min-w-0 flex flex-col">
           <div className="flex items-start justify-between gap-1.5">
             <button type="button" onClick={() => setDetailOpen(true)} className="text-left min-w-0 flex-1">
-              <h3 className="font-black text-ink text-[15px] leading-snug line-clamp-2">{exLabel(item.name)}</h3>
-              <p className="text-xs font-bold text-ink-faint truncate mt-0.5">{muscleLabel(item.muscle)}</p>
+              <h3 className="font-black text-ink text-[15px] leading-snug line-clamp-2">{exLabel(live.name)}</h3>
+              <p className="text-xs font-bold text-ink-faint truncate mt-0.5">{muscleLabel(live.muscle)}</p>
             </button>
             {!readOnly && (
               <div className="flex gap-0.5 shrink-0 -mr-1.5 -mt-1">
@@ -1496,11 +1498,20 @@ function ExerciseLibraryAdmin() {
   const [catalogOpen, setCatalogOpen] = useState(false);
   const [q, setQ] = useState("");
   const [busyId, setBusyId] = useState(null);
+  const [seeding, setSeeding] = useState(false);
+  const [seedErr, setSeedErr] = useState(null);
   const load = async () => { setItems(null); try { setItems(await fetchExerciseLibrary()); } catch (err) { setItems([]); } };
   useEffect(() => { load(); }, []);
   const remove = async (id) => { setBusyId(id); try { await deleteLibraryEntry(id); } catch (err) { /* ignore */ } await load(); setBusyId(null); };
+  const seedAll = async () => {
+    setSeeding(true); setSeedErr(null);
+    try { await seedLibraryFromCatalog(true); await load(); }
+    catch (err) { setSeedErr(err?.message || String(err)); }
+    setSeeding(false);
+  };
   const filtered = (items || []).filter((e) => !q.trim() || e.name.toLowerCase().includes(q.toLowerCase()) || (e.nameAr || "").includes(q));
   const existingNames = new Set((items || []).map((e) => e.name.toLowerCase()));
+  const notYetSeeded = items !== null && EXERCISE_LIBRARY.some((e) => !existingNames.has(e.name.toLowerCase()));
 
   return (
     <div className="rounded-2xl border border-line bg-card p-4">
@@ -1511,9 +1522,22 @@ function ExerciseLibraryAdmin() {
           <button onClick={() => setEditing({})} className="text-sm font-bold text-charge flex items-center gap-1 hover:text-charge-strong"><Plus className="w-4 h-4" /> إضافة</button>
         </div>
       </div>
+      {notYetSeeded && (
+        <div className="rounded-2xl bg-charge-soft p-3.5 mb-3 flex items-start gap-2.5">
+          <Sparkles className="w-4 h-4 text-charge-strong shrink-0 mt-0.5" />
+          <div className="min-w-0 flex-1">
+            <p className="text-sm font-bold text-charge-strong">استورد القائمة القياسية كاملة إلى قاعدة البيانات</p>
+            <p className="text-xs text-ink-faint mt-0.5 mb-2.5">هذا ما يجعل كل تمرين ومسمّى وصورة "مصدر واحد" فعليًا — بعد الاستيراد، أي تعديل لاحق هنا (اسم، صورة، عضلة) ينعكس تلقائيًا في كل خطة تستخدم هذا التمرين، القديمة والجديدة.</p>
+            <button disabled={seeding} onClick={seedAll} className="inline-flex items-center gap-1.5 text-sm font-bold text-paper bg-charge rounded-full px-4 py-2 disabled:opacity-50 hover:bg-charge-strong transition-colors">
+              {seeding ? <Loader2 className="w-4 h-4 animate-spin" /> : <Upload className="w-4 h-4" />} {seeding ? "جارٍ الاستيراد…" : `استيراد الآن (${EXERCISE_LIBRARY.filter((e) => !existingNames.has(e.name.toLowerCase())).length})`}
+            </button>
+            {seedErr && <ErrHint msg={seedErr} />}
+          </div>
+        </div>
+      )}
       {items && items.length > 0 && <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="بحث…" className={inputClass + " mb-3 text-sm py-2"} />}
       {items === null && <p className="text-sm text-ink-faint flex items-center gap-2"><Loader2 className="w-4 h-4 animate-spin" /> جارٍ التحميل…</p>}
-      {items?.length === 0 && <p className="text-sm text-ink-faint">لا توجد عناصر بعد — أضف أول تمرين، أو استورد من القائمة القياسية.</p>}
+      {items?.length === 0 && <p className="text-sm text-ink-faint">لا توجد عناصر بعد — استورد القائمة القياسية أعلاه، أو أضف تمرينًا واحدًا يدويًا.</p>}
       <div className="space-y-2 max-h-96 overflow-y-auto">
         {filtered.map((e) => (
           <div key={e.id} className="rounded-xl bg-mist p-2.5 flex items-center gap-2.5">
@@ -1533,7 +1557,7 @@ function ExerciseLibraryAdmin() {
         <AddFromCatalogSheet
           existingNames={existingNames}
           onCancel={() => setCatalogOpen(false)}
-          onPick={(e) => { setCatalogOpen(false); setEditing({ name: e.name, muscle: e.muscle, sets: e.sets, reps: e.reps, weight: e.weight, rest: e.rest, image: null, youtubeId: null }); }}
+          onPick={(e) => { setCatalogOpen(false); setEditing({ name: e.name, nameAr: EXNAME_AR[e.name] || "", muscle: e.muscle, muscleAr: MUSCLE_AR[e.muscle] || "", sets: e.sets, reps: e.reps, weight: e.weight, rest: e.rest, image: e.image || null, youtubeId: e.youtubeId || null }); }}
         />
       )}
     </div>
@@ -2475,6 +2499,25 @@ async function saveLibraryEntry(slug, data) {
 async function deleteLibraryEntry(slug) {
   await deleteDoc(doc(dbase, "exerciseLibrary", slug));
 }
+// One-time (or top-up) bulk import: writes every EXERCISE_LIBRARY seed
+// entry into Firestore in a single batch, carrying over the Arabic name/
+// muscle translations too. This is what actually makes the admin panel's
+// library non-empty and gives the admin one real place to edit every
+// exercise's name/photo/muscle with the change applying globally.
+async function seedLibraryFromCatalog(missingOnly) {
+  const existing = missingOnly ? new Set((await fetchExerciseLibrary()).map((e) => e.name.toLowerCase())) : new Set();
+  const toWrite = EXERCISE_LIBRARY.filter((e) => !existing.has(e.name.toLowerCase()));
+  const batch = writeBatch(dbase);
+  toWrite.forEach((e) => {
+    batch.set(doc(dbase, "exerciseLibrary", slugify(e.name)), {
+      name: e.name, nameAr: EXNAME_AR[e.name] || "", muscle: e.muscle, muscleAr: MUSCLE_AR[e.muscle] || "",
+      sets: e.sets, reps: e.reps, weight: e.weight, rest: e.rest, image: e.image || null, youtubeId: e.youtubeId || null,
+      source: "official", submittedBy: null, submittedByName: null, updatedAt: serverTimestamp(),
+    });
+  });
+  if (toWrite.length) await batch.commit();
+  return toWrite.length;
+}
 // A regular user adding a brand-new exercise the library doesn't have yet.
 // They own what they submit — source stays "user" so only they (or an
 // admin) can edit it later. Admins get the same button but it publishes as
@@ -2494,6 +2537,23 @@ function findLibraryMatch(name) {
   const n = (name || "").trim().toLowerCase();
   if (!n) return null;
   return RUNTIME_LIBRARY.find((e) => e.name.toLowerCase() === n) || null;
+}
+function findLibraryById(id) {
+  if (!id) return null;
+  return RUNTIME_LIBRARY.find((e) => slugify(e.name) === id) || null;
+}
+// The single-source-of-truth read path: every exercise CARD/DETAIL view
+// goes through this instead of trusting the copy stored on the exercise
+// itself, so an admin fixing a name/photo/muscle in the shared library
+// shows up immediately everywhere that exercise appears — including in
+// plans that were saved long before the library entry existed or had a
+// photo. `libraryId` (set when an exercise is added via the library
+// picker) survives the admin later renaming the entry; older exercises
+// that predate `libraryId` still get matched live by exact name text.
+function resolveLive(ex) {
+  const m = findLibraryById(ex.libraryId) || findLibraryMatch(ex.name);
+  if (!m) return { name: ex.name, muscle: ex.muscle, image: ex.image, youtubeId: ex.videoId, match: null };
+  return { name: m.name, muscle: m.muscle, image: m.image || ex.image, youtubeId: m.youtubeId || ex.videoId, match: m };
 }
 function youtubeEmbedUrl(id) { return `https://www.youtube-nocookie.com/embed/${id}`; }
 
@@ -3478,7 +3538,7 @@ export default function TrainingLog() {
       {addChooserOpen && (
         <AddExerciseChooser
           onCancel={() => setAddChooserOpen(false)}
-          onPick={(e) => { setAddChooserOpen(false); setModal({ mode: "add", exercise: { ...emptyForm, name: e.name, muscle: e.muscle, sets: e.sets, reps: e.reps, weight: e.weight, rest: e.rest, image: e.image, videoId: e.youtubeId || null } }); }}
+          onPick={(e) => { setAddChooserOpen(false); setModal({ mode: "add", exercise: { ...emptyForm, name: e.name, muscle: e.muscle, sets: e.sets, reps: e.reps, weight: e.weight, rest: e.rest, image: e.image, videoId: e.youtubeId || null, libraryId: slugify(e.name) } }); }}
           onBrowseAll={() => { setAddChooserOpen(false); setModal({ mode: "add", exercise: emptyForm, autoOpenPicker: true }); }}
           onCustom={() => { setAddChooserOpen(false); setModal({ mode: "add", exercise: emptyForm }); }}
         />
