@@ -68,6 +68,15 @@ const WEIGHT_OPTIONS = ["Light", "Light-Medium", "Medium", "Medium-Heavy", "Heav
 const STORAGE_KEY = "training-log-plans-v4";
 const ONBOARD_KEY = "training-log-onboarded";
 const emptyForm = { name: "", muscle: "", focus: false, sets: 3, reps: "", weight: "Medium", rest: "60 sec", restBetweenExercises: "", image: null };
+// The staples shown up front when adding an exercise — everything else
+// lives behind "تصفح كل المكتبة" so the common case (add a normal lift)
+// doesn't mean scrolling a 145+ item list first. Names must match
+// EXERCISE_LIBRARY entries exactly.
+const COMMON_EXERCISE_NAMES = [
+  "Back squat", "Deadlift", "Flat bench press", "Overhead press",
+  "Pull-up", "Barbell row", "Lat pulldown", "Leg press",
+  "Lateral raise", "Bicep curl", "Triceps pushdown", "Hanging leg raise",
+];
 // Self-hosted APK — place the file built by pwabuilder.com at this exact
 // path in your repo's public/ folder. Relative path so it resolves under
 // the /training-log/ base automatically. Keeps the whole install flow on
@@ -729,12 +738,50 @@ function LibraryPickerSheet({ onPick, onCancel }) {
   );
 }
 
-function ExerciseModal({ initial, onCancel, onSave, title, isAdminUser, currentUid, canSubmitLibrary, authorName }) {
+// First screen of "add exercise" — a photo grid of the common lifts (so
+// name+image are always seen together, per the request), a "browse
+// everything else" escape hatch for the other 130+, and a manual/custom
+// fallback for anything not in the library at all.
+function AddExerciseChooser({ onPick, onBrowseAll, onCustom, onCancel }) {
+  const common = COMMON_EXERCISE_NAMES.map((n) => findLibraryMatch(n)).filter(Boolean);
+  return (
+    <div className="fixed inset-0 z-[55] flex items-end sm:items-center justify-center bg-black/60 backdrop-blur-[2px]" onClick={onCancel}>
+      <div className={sheetClass} onClick={(e) => e.stopPropagation()}>
+        <div className="sticky top-0 bg-card flex items-center justify-between px-5 py-4 border-b border-line z-10">
+          <h2 className="text-xl font-black text-ink font-display">إضافة تمرين</h2>
+          <button onClick={onCancel} className="p-2 -mr-2 rounded-full text-ink-faint hover:bg-mist"><X className="w-5 h-5" /></button>
+        </div>
+        <div className="p-5 space-y-5">
+          <div>
+            <h3 className="text-[11px] font-bold uppercase tracking-[0.14em] text-ink-faint mb-2.5">الأكثر شيوعاً</h3>
+            <div className="grid grid-cols-3 gap-2.5">
+              {common.map((e) => (
+                <button key={e.name} type="button" onClick={() => onPick(e)} className="rounded-2xl overflow-hidden bg-mist border border-line hover:border-charge transition-colors text-center">
+                  {e.image ? <img src={e.image} alt="" className="w-full aspect-square object-cover" /> : <div className="w-full aspect-square flex items-center justify-center"><Dumbbell className="w-6 h-6 text-ink-faint" /></div>}
+                  <p className="text-xs font-bold text-ink px-1.5 py-2 truncate">{exLabel(e.name)}</p>
+                </button>
+              ))}
+            </div>
+          </div>
+          <button type="button" onClick={onBrowseAll} className="w-full flex items-center justify-between gap-2 bg-card border border-line rounded-2xl px-4 py-3.5 hover:border-charge transition-colors">
+            <span className="flex items-center gap-2.5"><ListFilter className="w-4 h-4 text-ink-faint" /><span className="font-bold text-ink text-sm">تصفح كل المكتبة ({RUNTIME_LIBRARY.length})</span></span>
+            <ChevronRight className="w-4 h-4 text-ink-faint rotate-180" />
+          </button>
+          <button type="button" onClick={onCustom} className="w-full flex items-center justify-center gap-1.5 py-3 text-sm font-bold text-ink-faint hover:text-ink">
+            <Plus className="w-4 h-4" /> تمرين مخصص (بدون مكتبة)
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ExerciseModal({ initial, onCancel, onSave, title, isAdminUser, currentUid, canSubmitLibrary, authorName, autoOpenPicker }) {
   const [form, setForm] = useState(initial);
   const [videoUrl, setVideoUrl] = useState(initial.videoId ? `https://youtu.be/${initial.videoId}` : "");
   const [askLibrary, setAskLibrary] = useState(false);
   const [libraryBusy, setLibraryBusy] = useState(false);
-  const [pickerOpen, setPickerOpen] = useState(false);
+  const [pickerOpen, setPickerOpen] = useState(!!autoOpenPicker);
   const [addToLibrary, setAddToLibrary] = useState(false);
   const [submitBusy, setSubmitBusy] = useState(false);
   const set = (k) => (e) => setForm((f) => ({ ...f, [k]: e.target.value }));
@@ -2234,153 +2281,153 @@ const SOUND = {
 };
 
 const EXERCISE_LIBRARY = [
-  { name: "Back squat", muscle: "Quads / glute max", sets: 3, reps: "6-8", weight: "Heavy", rest: "2.5 min", image: null, youtubeId: null },
-  { name: "Weighted step-up", muscle: "Glute max", sets: 4, reps: "8-12/leg", weight: "Medium-Heavy", rest: "2 min", image: null, youtubeId: null },
-  { name: "Walking lunge", muscle: "Glute max", sets: 4, reps: "10-12/leg", weight: "Medium", rest: "2 min", image: null, youtubeId: null },
-  { name: "Leg press", muscle: "Quads", sets: 3, reps: "10-15", weight: "Medium", rest: "90 sec", image: null, youtubeId: null },
-  { name: "Standing calf raise", muscle: "Calves", sets: 4, reps: "12-15", weight: "Medium", rest: "60 sec", image: null, youtubeId: null },
-  { name: "Seated calf raise", muscle: "Calves", sets: 3, reps: "15-20", weight: "Medium", rest: "60 sec", image: null, youtubeId: null },
+  { name: "Back squat", muscle: "Quads / glute max", sets: 3, reps: "6-8", weight: "Heavy", rest: "2.5 min", image: "./exercise-images/squat.webp", youtubeId: null },
+  { name: "Weighted step-up", muscle: "Glute max", sets: 4, reps: "8-12/leg", weight: "Medium-Heavy", rest: "2 min", image: "./exercise-images/step-ups.webp", youtubeId: null },
+  { name: "Walking lunge", muscle: "Glute max", sets: 4, reps: "10-12/leg", weight: "Medium", rest: "2 min", image: "./exercise-images/walking-lunge.webp", youtubeId: null },
+  { name: "Leg press", muscle: "Quads", sets: 3, reps: "10-15", weight: "Medium", rest: "90 sec", image: "./exercise-images/leg-press.webp", youtubeId: null },
+  { name: "Standing calf raise", muscle: "Calves", sets: 4, reps: "12-15", weight: "Medium", rest: "60 sec", image: "./exercise-images/standing-calf-raise.webp", youtubeId: null },
+  { name: "Seated calf raise", muscle: "Calves", sets: 3, reps: "15-20", weight: "Medium", rest: "60 sec", image: "./exercise-images/seated-calf-raise.webp", youtubeId: null },
   { name: "Calf raise on leg press", muscle: "Calves", sets: 3, reps: "15-20", weight: "Medium", rest: "60 sec", image: null, youtubeId: null },
-  { name: "Hanging leg raise", muscle: "Core", sets: 3, reps: "10-15", weight: "Medium", rest: "60 sec", image: null, youtubeId: null },
-  { name: "Hanging knee raise", muscle: "Core", sets: 3, reps: "8-12", weight: "Light-Medium", rest: "60 sec", image: null, youtubeId: null },
-  { name: "Reverse crunch", muscle: "Core", sets: 3, reps: "12-15", weight: "Light-Medium", rest: "60 sec", image: null, youtubeId: null },
-  { name: "Plank", muscle: "Core", sets: 3, reps: "20-40 sec hold", weight: "Light-Medium", rest: "60 sec", image: null, youtubeId: null },
-  { name: "Suitcase carry", muscle: "Core (anti-lateral-flexion)", sets: 2, reps: "30-40m/side", weight: "Medium-Heavy", rest: "60 sec", image: null, youtubeId: null },
-  { name: "Overhead press", muscle: "Delts (front)", sets: 3, reps: "6-8", weight: "Heavy", rest: "2-3 min", image: null, youtubeId: null },
-  { name: "Cable lateral raise", muscle: "Delts (side)", sets: 4, reps: "12-15", weight: "Light-Medium", rest: "60 sec", image: null, youtubeId: null },
-  { name: "Lateral raise", muscle: "Delts (side)", sets: 4, reps: "12-15", weight: "Light-Medium", rest: "60 sec", image: null, youtubeId: null },
-  { name: "Face pull", muscle: "Rear delt / traps", sets: 4, reps: "15-20", weight: "Light", rest: "60 sec", image: null, youtubeId: null },
+  { name: "Hanging leg raise", muscle: "Core", sets: 3, reps: "10-15", weight: "Medium", rest: "60 sec", image: "./exercise-images/hanging-leg-raise.webp", youtubeId: null },
+  { name: "Hanging knee raise", muscle: "Core", sets: 3, reps: "8-12", weight: "Light-Medium", rest: "60 sec", image: "./exercise-images/hanging-knee-raise.webp", youtubeId: null },
+  { name: "Reverse crunch", muscle: "Core", sets: 3, reps: "12-15", weight: "Light-Medium", rest: "60 sec", image: "./exercise-images/reverse-crunches.webp", youtubeId: null },
+  { name: "Plank", muscle: "Core", sets: 3, reps: "20-40 sec hold", weight: "Light-Medium", rest: "60 sec", image: "./exercise-images/plank.webp", youtubeId: null },
+  { name: "Suitcase carry", muscle: "Core (anti-lateral-flexion)", sets: 2, reps: "30-40m/side", weight: "Medium-Heavy", rest: "60 sec", image: "./exercise-images/suitcase-carry.webp", youtubeId: null },
+  { name: "Overhead press", muscle: "Delts (front)", sets: 3, reps: "6-8", weight: "Heavy", rest: "2-3 min", image: "./exercise-images/ohp.webp", youtubeId: null },
+  { name: "Cable lateral raise", muscle: "Delts (side)", sets: 4, reps: "12-15", weight: "Light-Medium", rest: "60 sec", image: "./exercise-images/cable-lateral-raise.webp", youtubeId: null },
+  { name: "Lateral raise", muscle: "Delts (side)", sets: 4, reps: "12-15", weight: "Light-Medium", rest: "60 sec", image: "./exercise-images/lateral-raise.webp", youtubeId: null },
+  { name: "Face pull", muscle: "Rear delt / traps", sets: 4, reps: "15-20", weight: "Light", rest: "60 sec", image: "./exercise-images/face-pull.webp", youtubeId: null },
   { name: "Prone Y-raise", muscle: "Lower traps / posture", sets: 3, reps: "12-15", weight: "Light", rest: "60 sec", image: null, youtubeId: null },
-  { name: "Cable external rotation", muscle: "Rotator cuff / shoulder posture", sets: 3, reps: "12-15/side", weight: "Light", rest: "60 sec", image: null, youtubeId: null },
-  { name: "Dumbbell shrug", muscle: "Traps", sets: 4, reps: "10-15", weight: "Medium-Heavy", rest: "90 sec", image: null, youtubeId: null },
-  { name: "Barbell shrug", muscle: "Traps", sets: 3, reps: "8-12", weight: "Heavy", rest: "90 sec", image: null, youtubeId: null },
-  { name: "Reverse curl", muscle: "Forearms", sets: 3, reps: "10-15", weight: "Medium", rest: "60 sec", image: null, youtubeId: null },
-  { name: "Farmer's hold", muscle: "Forearms / grip", sets: 3, reps: "30-40 sec", weight: "Heavy", rest: "90 sec", image: null, youtubeId: null },
-  { name: "Romanian deadlift", muscle: "Hamstrings / glute max", sets: 3, reps: "6-10", weight: "Heavy", rest: "2.5 min", image: null, youtubeId: null },
-  { name: "Deadlift", muscle: "Posterior chain", sets: 3, reps: "5-6", weight: "Heavy", rest: "3 min", image: null, youtubeId: null },
-  { name: "Bulgarian split squat", muscle: "Glute max", sets: 3, reps: "8-12/leg", weight: "Medium", rest: "90 sec", image: null, youtubeId: null },
-  { name: "Leg curl", muscle: "Hamstrings", sets: 3, reps: "10-12", weight: "Medium", rest: "90 sec", image: null, youtubeId: null },
-  { name: "Leg extension", muscle: "Quads", sets: 3, reps: "12-15", weight: "Medium", rest: "60 sec", image: null, youtubeId: null },
-  { name: "Flat bench press", muscle: "Chest", sets: 3, reps: "6-10", weight: "Heavy", rest: "2 min", image: null, youtubeId: null },
-  { name: "Incline dumbbell press", muscle: "Chest (upper)", sets: 3, reps: "6-10", weight: "Heavy", rest: "2 min", image: null, youtubeId: null },
-  { name: "Dips", muscle: "Chest (lower) / triceps", sets: 3, reps: "10-15", weight: "Medium-Heavy", rest: "60 sec", image: null, youtubeId: null },
-  { name: "Pull-up", muscle: "Back", sets: 4, reps: "max reps", weight: "Heavy", rest: "2 min", image: null, youtubeId: null },
-  { name: "Lat pulldown", muscle: "Back", sets: 3, reps: "8-12", weight: "Medium-Heavy", rest: "90 sec", image: null, youtubeId: null },
-  { name: "Seated cable row", muscle: "Back", sets: 3, reps: "8-12", weight: "Medium", rest: "90 sec", image: null, youtubeId: null },
-  { name: "EZ bar curl", muscle: "Biceps", sets: 2, reps: "10-15", weight: "Medium", rest: "60 sec", image: null, youtubeId: null },
-  { name: "Bicep curl", muscle: "Biceps", sets: 2, reps: "10-12", weight: "Light-Medium", rest: "60 sec", image: null, youtubeId: null },
-  { name: "Hammer curl", muscle: "Biceps / forearms", sets: 3, reps: "10-12", weight: "Medium", rest: "60 sec", image: null, youtubeId: null },
-  { name: "Preacher curl", muscle: "Biceps", sets: 3, reps: "10-12", weight: "Medium", rest: "60 sec", image: null, youtubeId: null },
-  { name: "Triceps pushdown", muscle: "Triceps", sets: 2, reps: "10-15", weight: "Medium", rest: "60 sec", image: null, youtubeId: null },
-  { name: "Overhead triceps extension", muscle: "Triceps", sets: 3, reps: "10-12", weight: "Medium", rest: "60 sec", image: null, youtubeId: null },
-  { name: "Close-grip bench press", muscle: "Triceps / chest", sets: 3, reps: "8-10", weight: "Heavy", rest: "2 min", image: null, youtubeId: null },
-  { name: "Skull crusher", muscle: "Triceps", sets: 3, reps: "10-12", weight: "Medium", rest: "60 sec", image: null, youtubeId: null },
-  { name: "Incline barbell press", muscle: "Chest (upper)", sets: 3, reps: "6-10", weight: "Heavy", rest: "2 min", image: null, youtubeId: null },
-  { name: "Cable chest fly", muscle: "Chest", sets: 3, reps: "12-15", weight: "Light-Medium", rest: "60 sec", image: null, youtubeId: null },
-  { name: "Push-up", muscle: "Chest / triceps", sets: 3, reps: "max reps", weight: "Light", rest: "60 sec", image: null, youtubeId: null },
-  { name: "Chest-supported row", muscle: "Back", sets: 3, reps: "8-12", weight: "Medium-Heavy", rest: "90 sec", image: null, youtubeId: null },
-  { name: "Barbell row", muscle: "Back", sets: 3, reps: "6-10", weight: "Heavy", rest: "2 min", image: null, youtubeId: null },
-  { name: "Single-arm dumbbell row", muscle: "Back", sets: 3, reps: "8-12/side", weight: "Medium-Heavy", rest: "90 sec", image: null, youtubeId: null },
-  { name: "Straight-arm pulldown", muscle: "Lats", sets: 3, reps: "12-15", weight: "Light-Medium", rest: "60 sec", image: null, youtubeId: null },
-  { name: "Hip thrust", muscle: "Glute max", sets: 3, reps: "8-12", weight: "Heavy", rest: "2 min", image: null, youtubeId: null },
-  { name: "Glute bridge", muscle: "Glute max", sets: 3, reps: "12-15", weight: "Medium", rest: "60 sec", image: null, youtubeId: null },
-  { name: "Cable kickback", muscle: "Glute max", sets: 3, reps: "12-15/side", weight: "Light-Medium", rest: "60 sec", image: null, youtubeId: null },
-  { name: "Goblet squat", muscle: "Quads / glute max", sets: 3, reps: "10-15", weight: "Medium", rest: "90 sec", image: null, youtubeId: null },
-  { name: "Front squat", muscle: "Quads", sets: 3, reps: "6-8", weight: "Heavy", rest: "2.5 min", image: null, youtubeId: null },
-  { name: "Hip abduction machine", muscle: "Glute medius", sets: 3, reps: "15-20", weight: "Light-Medium", rest: "45 sec", image: null, youtubeId: null },
-  { name: "Cable crunch", muscle: "Core", sets: 3, reps: "12-15", weight: "Medium", rest: "60 sec", image: null, youtubeId: null },
-  { name: "Russian twist", muscle: "Core (obliques)", sets: 3, reps: "15-20/side", weight: "Light", rest: "45 sec", image: null, youtubeId: null },
-  { name: "Ab wheel rollout", muscle: "Core", sets: 3, reps: "8-12", weight: "Medium", rest: "60 sec", image: null, youtubeId: null },
-  { name: "Arnold press", muscle: "Delts (front/side)", sets: 3, reps: "8-12", weight: "Medium", rest: "90 sec", image: null, youtubeId: null },
-  { name: "Rear delt fly", muscle: "Rear delt", sets: 3, reps: "12-15", weight: "Light", rest: "60 sec", image: null, youtubeId: null },
-  { name: "Chin-up", muscle: "Back / biceps", sets: 3, reps: "max reps", weight: "Heavy", rest: "2 min", image: null, youtubeId: null },
+  { name: "Cable external rotation", muscle: "Rotator cuff / shoulder posture", sets: 3, reps: "12-15/side", weight: "Light", rest: "60 sec", image: "./exercise-images/cable-external-rotation.webp", youtubeId: null },
+  { name: "Dumbbell shrug", muscle: "Traps", sets: 4, reps: "10-15", weight: "Medium-Heavy", rest: "90 sec", image: "./exercise-images/db-shrug.webp", youtubeId: null },
+  { name: "Barbell shrug", muscle: "Traps", sets: 3, reps: "8-12", weight: "Heavy", rest: "90 sec", image: "./exercise-images/shrug.webp", youtubeId: null },
+  { name: "Reverse curl", muscle: "Forearms", sets: 3, reps: "10-15", weight: "Medium", rest: "60 sec", image: "./exercise-images/reverse-curl.webp", youtubeId: null },
+  { name: "Farmer's hold", muscle: "Forearms / grip", sets: 3, reps: "30-40 sec", weight: "Heavy", rest: "90 sec", image: "./exercise-images/dumbbell-farmers-walk.webp", youtubeId: null },
+  { name: "Romanian deadlift", muscle: "Hamstrings / glute max", sets: 3, reps: "6-10", weight: "Heavy", rest: "2.5 min", image: "./exercise-images/romanian-deadlift.webp", youtubeId: null },
+  { name: "Deadlift", muscle: "Posterior chain", sets: 3, reps: "5-6", weight: "Heavy", rest: "3 min", image: "./exercise-images/deadlift.webp", youtubeId: null },
+  { name: "Bulgarian split squat", muscle: "Glute max", sets: 3, reps: "8-12/leg", weight: "Medium", rest: "90 sec", image: "./exercise-images/bulgarian-split-squat.webp", youtubeId: null },
+  { name: "Leg curl", muscle: "Hamstrings", sets: 3, reps: "10-12", weight: "Medium", rest: "90 sec", image: "./exercise-images/leg-curl.webp", youtubeId: null },
+  { name: "Leg extension", muscle: "Quads", sets: 3, reps: "12-15", weight: "Medium", rest: "60 sec", image: "./exercise-images/leg-extension.webp", youtubeId: null },
+  { name: "Flat bench press", muscle: "Chest", sets: 3, reps: "6-10", weight: "Heavy", rest: "2 min", image: "./exercise-images/bench-press.webp", youtubeId: null },
+  { name: "Incline dumbbell press", muscle: "Chest (upper)", sets: 3, reps: "6-10", weight: "Heavy", rest: "2 min", image: "./exercise-images/incline-db-press.webp", youtubeId: null },
+  { name: "Dips", muscle: "Chest (lower) / triceps", sets: 3, reps: "10-15", weight: "Medium-Heavy", rest: "60 sec", image: "./exercise-images/dips.webp", youtubeId: null },
+  { name: "Pull-up", muscle: "Back", sets: 4, reps: "max reps", weight: "Heavy", rest: "2 min", image: "./exercise-images/pull-up.webp", youtubeId: null },
+  { name: "Lat pulldown", muscle: "Back", sets: 3, reps: "8-12", weight: "Medium-Heavy", rest: "90 sec", image: "./exercise-images/lat-pulldown.webp", youtubeId: null },
+  { name: "Seated cable row", muscle: "Back", sets: 3, reps: "8-12", weight: "Medium", rest: "90 sec", image: "./exercise-images/seated-cable-row.webp", youtubeId: null },
+  { name: "EZ bar curl", muscle: "Biceps", sets: 2, reps: "10-15", weight: "Medium", rest: "60 sec", image: "./exercise-images/ez-bar-curl.webp", youtubeId: null },
+  { name: "Bicep curl", muscle: "Biceps", sets: 2, reps: "10-12", weight: "Light-Medium", rest: "60 sec", image: "./exercise-images/barbell-curl.webp", youtubeId: null },
+  { name: "Hammer curl", muscle: "Biceps / forearms", sets: 3, reps: "10-12", weight: "Medium", rest: "60 sec", image: "./exercise-images/hammer-curl.webp", youtubeId: null },
+  { name: "Preacher curl", muscle: "Biceps", sets: 3, reps: "10-12", weight: "Medium", rest: "60 sec", image: "./exercise-images/preacher-curl.webp", youtubeId: null },
+  { name: "Triceps pushdown", muscle: "Triceps", sets: 2, reps: "10-15", weight: "Medium", rest: "60 sec", image: "./exercise-images/tricep-pushdown.webp", youtubeId: null },
+  { name: "Overhead triceps extension", muscle: "Triceps", sets: 3, reps: "10-12", weight: "Medium", rest: "60 sec", image: "./exercise-images/overhead-tricep-extension.webp", youtubeId: null },
+  { name: "Close-grip bench press", muscle: "Triceps / chest", sets: 3, reps: "8-10", weight: "Heavy", rest: "2 min", image: "./exercise-images/close-grip-bench-press.webp", youtubeId: null },
+  { name: "Skull crusher", muscle: "Triceps", sets: 3, reps: "10-12", weight: "Medium", rest: "60 sec", image: "./exercise-images/skull-crusher.webp", youtubeId: null },
+  { name: "Incline barbell press", muscle: "Chest (upper)", sets: 3, reps: "6-10", weight: "Heavy", rest: "2 min", image: "./exercise-images/incline-db-press.webp", youtubeId: null },
+  { name: "Cable chest fly", muscle: "Chest", sets: 3, reps: "12-15", weight: "Light-Medium", rest: "60 sec", image: "./exercise-images/cable-fly.webp", youtubeId: null },
+  { name: "Push-up", muscle: "Chest / triceps", sets: 3, reps: "max reps", weight: "Light", rest: "60 sec", image: "./exercise-images/push-up.webp", youtubeId: null },
+  { name: "Chest-supported row", muscle: "Back", sets: 3, reps: "8-12", weight: "Medium-Heavy", rest: "90 sec", image: "./exercise-images/chest-supported-db-row.webp", youtubeId: null },
+  { name: "Barbell row", muscle: "Back", sets: 3, reps: "6-10", weight: "Heavy", rest: "2 min", image: "./exercise-images/barbell-row.webp", youtubeId: null },
+  { name: "Single-arm dumbbell row", muscle: "Back", sets: 3, reps: "8-12/side", weight: "Medium-Heavy", rest: "90 sec", image: "./exercise-images/single-arm-db-row.webp", youtubeId: null },
+  { name: "Straight-arm pulldown", muscle: "Lats", sets: 3, reps: "12-15", weight: "Light-Medium", rest: "60 sec", image: "./exercise-images/straight-arm-pulldown.webp", youtubeId: null },
+  { name: "Hip thrust", muscle: "Glute max", sets: 3, reps: "8-12", weight: "Heavy", rest: "2 min", image: "./exercise-images/hip-thrust.webp", youtubeId: null },
+  { name: "Glute bridge", muscle: "Glute max", sets: 3, reps: "12-15", weight: "Medium", rest: "60 sec", image: "./exercise-images/glute-bridge.webp", youtubeId: null },
+  { name: "Cable kickback", muscle: "Glute max", sets: 3, reps: "12-15/side", weight: "Light-Medium", rest: "60 sec", image: "./exercise-images/cable-kickback.webp", youtubeId: null },
+  { name: "Goblet squat", muscle: "Quads / glute max", sets: 3, reps: "10-15", weight: "Medium", rest: "90 sec", image: "./exercise-images/goblet-squat.webp", youtubeId: null },
+  { name: "Front squat", muscle: "Quads", sets: 3, reps: "6-8", weight: "Heavy", rest: "2.5 min", image: "./exercise-images/front-squat.webp", youtubeId: null },
+  { name: "Hip abduction machine", muscle: "Glute medius", sets: 3, reps: "15-20", weight: "Light-Medium", rest: "45 sec", image: "./exercise-images/hip-abduction.webp", youtubeId: null },
+  { name: "Cable crunch", muscle: "Core", sets: 3, reps: "12-15", weight: "Medium", rest: "60 sec", image: "./exercise-images/cable-crunch.webp", youtubeId: null },
+  { name: "Russian twist", muscle: "Core (obliques)", sets: 3, reps: "15-20/side", weight: "Light", rest: "45 sec", image: "./exercise-images/russian-twist.webp", youtubeId: null },
+  { name: "Ab wheel rollout", muscle: "Core", sets: 3, reps: "8-12", weight: "Medium", rest: "60 sec", image: "./exercise-images/ab-wheel-rollout.webp", youtubeId: null },
+  { name: "Arnold press", muscle: "Delts (front/side)", sets: 3, reps: "8-12", weight: "Medium", rest: "90 sec", image: "./exercise-images/arnold-press.webp", youtubeId: null },
+  { name: "Rear delt fly", muscle: "Rear delt", sets: 3, reps: "12-15", weight: "Light", rest: "60 sec", image: "./exercise-images/rear-delt-fly.webp", youtubeId: null },
+  { name: "Chin-up", muscle: "Back / biceps", sets: 3, reps: "max reps", weight: "Heavy", rest: "2 min", image: "./exercise-images/chin-ups.webp", youtubeId: null },
   // ---- expanded catalog — common gym exercises not covered above, added
   // so the admin has a genuinely broad list to pick from in "إضافة من
   // القائمة القياسية" instead of typing every entry from scratch. ----
-  { name: "Cable fly (low-to-high)", muscle: "Chest (upper)", sets: 3, reps: "12-15", weight: "Light-Medium", rest: "60 sec", image: null, youtubeId: null },
-  { name: "Cable fly (high-to-low)", muscle: "Chest (lower)", sets: 3, reps: "12-15", weight: "Light-Medium", rest: "60 sec", image: null, youtubeId: null },
-  { name: "Machine chest press", muscle: "Chest", sets: 3, reps: "8-12", weight: "Medium-Heavy", rest: "90 sec", image: null, youtubeId: null },
-  { name: "Decline bench press", muscle: "Chest (lower)", sets: 3, reps: "8-10", weight: "Heavy", rest: "2 min", image: null, youtubeId: null },
-  { name: "Incline cable fly", muscle: "Chest (upper)", sets: 3, reps: "12-15", weight: "Light-Medium", rest: "60 sec", image: null, youtubeId: null },
-  { name: "Pec-deck fly", muscle: "Chest", sets: 3, reps: "12-15", weight: "Light-Medium", rest: "60 sec", image: null, youtubeId: null },
-  { name: "Landmine press", muscle: "Chest (upper) / front delt", sets: 3, reps: "8-12", weight: "Medium", rest: "90 sec", image: null, youtubeId: null },
-  { name: "T-bar row", muscle: "Back", sets: 3, reps: "8-10", weight: "Heavy", rest: "2 min", image: null, youtubeId: null },
+  { name: "Cable fly (low-to-high)", muscle: "Chest (upper)", sets: 3, reps: "12-15", weight: "Light-Medium", rest: "60 sec", image: "./exercise-images/cable-fly.webp", youtubeId: null },
+  { name: "Cable fly (high-to-low)", muscle: "Chest (lower)", sets: 3, reps: "12-15", weight: "Light-Medium", rest: "60 sec", image: "./exercise-images/cable-fly.webp", youtubeId: null },
+  { name: "Machine chest press", muscle: "Chest", sets: 3, reps: "8-12", weight: "Medium-Heavy", rest: "90 sec", image: "./exercise-images/chest-press-machine.webp", youtubeId: null },
+  { name: "Decline bench press", muscle: "Chest (lower)", sets: 3, reps: "8-10", weight: "Heavy", rest: "2 min", image: "./exercise-images/decline-bench-press.webp", youtubeId: null },
+  { name: "Incline cable fly", muscle: "Chest (upper)", sets: 3, reps: "12-15", weight: "Light-Medium", rest: "60 sec", image: "./exercise-images/incline-dumbbell-fly.webp", youtubeId: null },
+  { name: "Pec-deck fly", muscle: "Chest", sets: 3, reps: "12-15", weight: "Light-Medium", rest: "60 sec", image: "./exercise-images/machine-chest-fly.webp", youtubeId: null },
+  { name: "Landmine press", muscle: "Chest (upper) / front delt", sets: 3, reps: "8-12", weight: "Medium", rest: "90 sec", image: "./exercise-images/landmine-press.webp", youtubeId: null },
+  { name: "T-bar row", muscle: "Back", sets: 3, reps: "8-10", weight: "Heavy", rest: "2 min", image: "./exercise-images/t-bar-row.webp", youtubeId: null },
   { name: "Meadows row", muscle: "Back / lats", sets: 3, reps: "8-12/side", weight: "Medium-Heavy", rest: "90 sec", image: null, youtubeId: null },
-  { name: "Pendlay row", muscle: "Back", sets: 3, reps: "6-8", weight: "Heavy", rest: "2 min", image: null, youtubeId: null },
-  { name: "Inverted row", muscle: "Back", sets: 3, reps: "8-15", weight: "Medium", rest: "90 sec", image: null, youtubeId: null },
-  { name: "Machine row", muscle: "Back", sets: 3, reps: "10-12", weight: "Medium", rest: "90 sec", image: null, youtubeId: null },
-  { name: "Wide-grip pull-up", muscle: "Back (lats)", sets: 3, reps: "max reps", weight: "Heavy", rest: "2 min", image: null, youtubeId: null },
-  { name: "Neutral-grip pull-up", muscle: "Back / biceps", sets: 3, reps: "max reps", weight: "Heavy", rest: "2 min", image: null, youtubeId: null },
-  { name: "Rack pull", muscle: "Back / posterior chain", sets: 3, reps: "5-8", weight: "Heavy", rest: "2.5 min", image: null, youtubeId: null },
-  { name: "Good morning", muscle: "Hamstrings / lower back", sets: 3, reps: "8-10", weight: "Medium", rest: "2 min", image: null, youtubeId: null },
-  { name: "Hyperextension (back extension)", muscle: "Lower back / glutes", sets: 3, reps: "12-15", weight: "Light-Medium", rest: "60 sec", image: null, youtubeId: null },
+  { name: "Pendlay row", muscle: "Back", sets: 3, reps: "6-8", weight: "Heavy", rest: "2 min", image: "./exercise-images/pendlay-row.webp", youtubeId: null },
+  { name: "Inverted row", muscle: "Back", sets: 3, reps: "8-15", weight: "Medium", rest: "90 sec", image: "./exercise-images/inverted-row.webp", youtubeId: null },
+  { name: "Machine row", muscle: "Back", sets: 3, reps: "10-12", weight: "Medium", rest: "90 sec", image: "./exercise-images/chest-supported-smith-machine-row.webp", youtubeId: null },
+  { name: "Wide-grip pull-up", muscle: "Back (lats)", sets: 3, reps: "max reps", weight: "Heavy", rest: "2 min", image: "./exercise-images/wide-grip-pull-ups.webp", youtubeId: null },
+  { name: "Neutral-grip pull-up", muscle: "Back / biceps", sets: 3, reps: "max reps", weight: "Heavy", rest: "2 min", image: "./exercise-images/neutral-grip-pull-ups.webp", youtubeId: null },
+  { name: "Rack pull", muscle: "Back / posterior chain", sets: 3, reps: "5-8", weight: "Heavy", rest: "2.5 min", image: "./exercise-images/rack-pull.webp", youtubeId: null },
+  { name: "Good morning", muscle: "Hamstrings / lower back", sets: 3, reps: "8-10", weight: "Medium", rest: "2 min", image: "./exercise-images/good-morning.webp", youtubeId: null },
+  { name: "Hyperextension (back extension)", muscle: "Lower back / glutes", sets: 3, reps: "12-15", weight: "Light-Medium", rest: "60 sec", image: "./exercise-images/back-extension.webp", youtubeId: null },
   { name: "Seal row", muscle: "Back", sets: 3, reps: "8-12", weight: "Medium-Heavy", rest: "90 sec", image: null, youtubeId: null },
   { name: "Cable seated row (single arm)", muscle: "Back", sets: 3, reps: "10-12/side", weight: "Medium", rest: "90 sec", image: null, youtubeId: null },
-  { name: "Machine shoulder press", muscle: "Delts (front)", sets: 3, reps: "8-12", weight: "Medium-Heavy", rest: "90 sec", image: null, youtubeId: null },
-  { name: "Seated dumbbell shoulder press", muscle: "Delts (front)", sets: 3, reps: "8-12", weight: "Medium-Heavy", rest: "90 sec", image: null, youtubeId: null },
-  { name: "Upright row", muscle: "Delts (side) / traps", sets: 3, reps: "10-12", weight: "Medium", rest: "60 sec", image: null, youtubeId: null },
-  { name: "Cable rear-delt fly", muscle: "Rear delt", sets: 3, reps: "12-15", weight: "Light-Medium", rest: "60 sec", image: null, youtubeId: null },
+  { name: "Machine shoulder press", muscle: "Delts (front)", sets: 3, reps: "8-12", weight: "Medium-Heavy", rest: "90 sec", image: "./exercise-images/machine-shoulder-press.webp", youtubeId: null },
+  { name: "Seated dumbbell shoulder press", muscle: "Delts (front)", sets: 3, reps: "8-12", weight: "Medium-Heavy", rest: "90 sec", image: "./exercise-images/seated-db-press.webp", youtubeId: null },
+  { name: "Upright row", muscle: "Delts (side) / traps", sets: 3, reps: "10-12", weight: "Medium", rest: "60 sec", image: "./exercise-images/upright-row.webp", youtubeId: null },
+  { name: "Cable rear-delt fly", muscle: "Rear delt", sets: 3, reps: "12-15", weight: "Light-Medium", rest: "60 sec", image: "./exercise-images/rear-delt-fly.webp", youtubeId: null },
   { name: "Machine lateral raise", muscle: "Delts (side)", sets: 3, reps: "12-15", weight: "Light-Medium", rest: "60 sec", image: null, youtubeId: null },
-  { name: "Bent-over dumbbell rear delt raise", muscle: "Rear delt", sets: 3, reps: "12-15", weight: "Light", rest: "60 sec", image: null, youtubeId: null },
-  { name: "Behind-the-neck press", muscle: "Delts", sets: 3, reps: "8-10", weight: "Medium", rest: "2 min", image: null, youtubeId: null },
-  { name: "Shrug (machine)", muscle: "Traps", sets: 3, reps: "10-15", weight: "Medium-Heavy", rest: "90 sec", image: null, youtubeId: null },
-  { name: "Incline dumbbell curl", muscle: "Biceps", sets: 3, reps: "10-12", weight: "Light-Medium", rest: "60 sec", image: null, youtubeId: null },
-  { name: "Concentration curl", muscle: "Biceps", sets: 3, reps: "10-12", weight: "Light-Medium", rest: "60 sec", image: null, youtubeId: null },
-  { name: "Cable curl (bar)", muscle: "Biceps", sets: 3, reps: "10-12", weight: "Medium", rest: "60 sec", image: null, youtubeId: null },
-  { name: "Spider curl", muscle: "Biceps", sets: 3, reps: "10-12", weight: "Medium", rest: "60 sec", image: null, youtubeId: null },
-  { name: "Drag curl", muscle: "Biceps", sets: 3, reps: "10-12", weight: "Medium", rest: "60 sec", image: null, youtubeId: null },
+  { name: "Bent-over dumbbell rear delt raise", muscle: "Rear delt", sets: 3, reps: "12-15", weight: "Light", rest: "60 sec", image: "./exercise-images/rear-delt-fly.webp", youtubeId: null },
+  { name: "Behind-the-neck press", muscle: "Delts", sets: 3, reps: "8-10", weight: "Medium", rest: "2 min", image: "./exercise-images/behind-the-neck-press.webp", youtubeId: null },
+  { name: "Shrug (machine)", muscle: "Traps", sets: 3, reps: "10-15", weight: "Medium-Heavy", rest: "90 sec", image: "./exercise-images/db-shrug.webp", youtubeId: null },
+  { name: "Incline dumbbell curl", muscle: "Biceps", sets: 3, reps: "10-12", weight: "Light-Medium", rest: "60 sec", image: "./exercise-images/incline-db-curl.webp", youtubeId: null },
+  { name: "Concentration curl", muscle: "Biceps", sets: 3, reps: "10-12", weight: "Light-Medium", rest: "60 sec", image: "./exercise-images/concentration-curl.webp", youtubeId: null },
+  { name: "Cable curl (bar)", muscle: "Biceps", sets: 3, reps: "10-12", weight: "Medium", rest: "60 sec", image: "./exercise-images/cable-curl.webp", youtubeId: null },
+  { name: "Spider curl", muscle: "Biceps", sets: 3, reps: "10-12", weight: "Medium", rest: "60 sec", image: "./exercise-images/spider-curl.webp", youtubeId: null },
+  { name: "Drag curl", muscle: "Biceps", sets: 3, reps: "10-12", weight: "Medium", rest: "60 sec", image: "./exercise-images/drag-curl.webp", youtubeId: null },
   { name: "21s bicep curl", muscle: "Biceps", sets: 2, reps: "21 (7-7-7)", weight: "Light-Medium", rest: "90 sec", image: null, youtubeId: null },
-  { name: "Overhead cable triceps extension", muscle: "Triceps", sets: 3, reps: "10-12", weight: "Medium", rest: "60 sec", image: null, youtubeId: null },
-  { name: "Rope pushdown", muscle: "Triceps", sets: 3, reps: "10-15", weight: "Medium", rest: "60 sec", image: null, youtubeId: null },
-  { name: "Diamond push-up", muscle: "Triceps / chest", sets: 3, reps: "max reps", weight: "Light", rest: "60 sec", image: null, youtubeId: null },
-  { name: "Dumbbell kickback", muscle: "Triceps", sets: 3, reps: "12-15", weight: "Light", rest: "45 sec", image: null, youtubeId: null },
+  { name: "Overhead cable triceps extension", muscle: "Triceps", sets: 3, reps: "10-12", weight: "Medium", rest: "60 sec", image: "./exercise-images/overhead-tricep-extension.webp", youtubeId: null },
+  { name: "Rope pushdown", muscle: "Triceps", sets: 3, reps: "10-15", weight: "Medium", rest: "60 sec", image: "./exercise-images/tricep-pushdown.webp", youtubeId: null },
+  { name: "Diamond push-up", muscle: "Triceps / chest", sets: 3, reps: "max reps", weight: "Light", rest: "60 sec", image: "./exercise-images/diamond-push-ups.webp", youtubeId: null },
+  { name: "Dumbbell kickback", muscle: "Triceps", sets: 3, reps: "12-15", weight: "Light", rest: "45 sec", image: "./exercise-images/tricep-kickback.webp", youtubeId: null },
   { name: "JM press", muscle: "Triceps", sets: 3, reps: "8-10", weight: "Medium-Heavy", rest: "90 sec", image: null, youtubeId: null },
-  { name: "Wrist curl", muscle: "Forearms", sets: 3, reps: "12-15", weight: "Light-Medium", rest: "45 sec", image: null, youtubeId: null },
-  { name: "Reverse wrist curl", muscle: "Forearms", sets: 3, reps: "12-15", weight: "Light-Medium", rest: "45 sec", image: null, youtubeId: null },
-  { name: "Plate pinch hold", muscle: "Forearms / grip", sets: 3, reps: "20-30 sec", weight: "Medium", rest: "60 sec", image: null, youtubeId: null },
-  { name: "Dead hang", muscle: "Forearms / grip", sets: 3, reps: "30-45 sec", weight: "Light", rest: "60 sec", image: null, youtubeId: null },
-  { name: "Sumo deadlift", muscle: "Posterior chain / glutes", sets: 3, reps: "5-6", weight: "Heavy", rest: "3 min", image: null, youtubeId: null },
+  { name: "Wrist curl", muscle: "Forearms", sets: 3, reps: "12-15", weight: "Light-Medium", rest: "45 sec", image: "./exercise-images/barbell-wrist-curl.webp", youtubeId: null },
+  { name: "Reverse wrist curl", muscle: "Forearms", sets: 3, reps: "12-15", weight: "Light-Medium", rest: "45 sec", image: "./exercise-images/db-reverse-wrist-curl.webp", youtubeId: null },
+  { name: "Plate pinch hold", muscle: "Forearms / grip", sets: 3, reps: "20-30 sec", weight: "Medium", rest: "60 sec", image: "./exercise-images/plate-pinch.webp", youtubeId: null },
+  { name: "Dead hang", muscle: "Forearms / grip", sets: 3, reps: "30-45 sec", weight: "Light", rest: "60 sec", image: "./exercise-images/dead-hang.webp", youtubeId: null },
+  { name: "Sumo deadlift", muscle: "Posterior chain / glutes", sets: 3, reps: "5-6", weight: "Heavy", rest: "3 min", image: "./exercise-images/sumo-deadlift.webp", youtubeId: null },
   { name: "Trap bar deadlift", muscle: "Posterior chain", sets: 3, reps: "5-6", weight: "Heavy", rest: "3 min", image: null, youtubeId: null },
   { name: "Zercher squat", muscle: "Quads / core", sets: 3, reps: "6-8", weight: "Heavy", rest: "2.5 min", image: null, youtubeId: null },
-  { name: "Box squat", muscle: "Quads / glutes", sets: 3, reps: "6-8", weight: "Heavy", rest: "2.5 min", image: null, youtubeId: null },
-  { name: "Pause squat", muscle: "Quads / glutes", sets: 3, reps: "5-6", weight: "Heavy", rest: "2.5 min", image: null, youtubeId: null },
+  { name: "Box squat", muscle: "Quads / glutes", sets: 3, reps: "6-8", weight: "Heavy", rest: "2.5 min", image: "./exercise-images/box-squat.webp", youtubeId: null },
+  { name: "Pause squat", muscle: "Quads / glutes", sets: 3, reps: "5-6", weight: "Heavy", rest: "2.5 min", image: "./exercise-images/pause-squat.webp", youtubeId: null },
   { name: "Sissy squat", muscle: "Quads", sets: 3, reps: "10-15", weight: "Light", rest: "60 sec", image: null, youtubeId: null },
-  { name: "Smith machine squat", muscle: "Quads / glutes", sets: 3, reps: "8-12", weight: "Medium-Heavy", rest: "2 min", image: null, youtubeId: null },
-  { name: "Nordic hamstring curl", muscle: "Hamstrings", sets: 3, reps: "6-10", weight: "Heavy", rest: "90 sec", image: null, youtubeId: null },
-  { name: "Seated leg curl", muscle: "Hamstrings", sets: 3, reps: "10-12", weight: "Medium", rest: "90 sec", image: null, youtubeId: null },
-  { name: "Stiff-leg deadlift", muscle: "Hamstrings", sets: 3, reps: "8-10", weight: "Heavy", rest: "2 min", image: null, youtubeId: null },
-  { name: "Single-leg Romanian deadlift", muscle: "Hamstrings / glutes / balance", sets: 3, reps: "8-10/leg", weight: "Medium", rest: "90 sec", image: null, youtubeId: null },
-  { name: "Reverse lunge", muscle: "Glutes / quads", sets: 3, reps: "10-12/leg", weight: "Medium", rest: "90 sec", image: null, youtubeId: null },
+  { name: "Smith machine squat", muscle: "Quads / glutes", sets: 3, reps: "8-12", weight: "Medium-Heavy", rest: "2 min", image: "./exercise-images/smith-machine-squat.webp", youtubeId: null },
+  { name: "Nordic hamstring curl", muscle: "Hamstrings", sets: 3, reps: "6-10", weight: "Heavy", rest: "90 sec", image: "./exercise-images/nordic-hamstring-curl.webp", youtubeId: null },
+  { name: "Seated leg curl", muscle: "Hamstrings", sets: 3, reps: "10-12", weight: "Medium", rest: "90 sec", image: "./exercise-images/seated-leg-curl.webp", youtubeId: null },
+  { name: "Stiff-leg deadlift", muscle: "Hamstrings", sets: 3, reps: "8-10", weight: "Heavy", rest: "2 min", image: "./exercise-images/stiff-leg-deadlift.webp", youtubeId: null },
+  { name: "Single-leg Romanian deadlift", muscle: "Hamstrings / glutes / balance", sets: 3, reps: "8-10/leg", weight: "Medium", rest: "90 sec", image: "./exercise-images/single-leg-romanian-deadlift.webp", youtubeId: null },
+  { name: "Reverse lunge", muscle: "Glutes / quads", sets: 3, reps: "10-12/leg", weight: "Medium", rest: "90 sec", image: "./exercise-images/reverse-lunge.webp", youtubeId: null },
   { name: "Lateral lunge", muscle: "Glutes / adductors", sets: 3, reps: "10-12/leg", weight: "Medium", rest: "90 sec", image: null, youtubeId: null },
   { name: "Curtsy lunge", muscle: "Glute medius / quads", sets: 3, reps: "10-12/leg", weight: "Light-Medium", rest: "60 sec", image: null, youtubeId: null },
   { name: "Single-leg hip thrust", muscle: "Glute max", sets: 3, reps: "10-12/leg", weight: "Medium", rest: "90 sec", image: null, youtubeId: null },
   { name: "Frog pump", muscle: "Glute max", sets: 3, reps: "15-20", weight: "Light-Medium", rest: "60 sec", image: null, youtubeId: null },
   { name: "Cable pull-through", muscle: "Glutes / hamstrings", sets: 3, reps: "12-15", weight: "Medium", rest: "60 sec", image: null, youtubeId: null },
-  { name: "Banded lateral walk", muscle: "Glute medius", sets: 3, reps: "15-20/side", weight: "Light", rest: "45 sec", image: null, youtubeId: null },
+  { name: "Banded lateral walk", muscle: "Glute medius", sets: 3, reps: "15-20/side", weight: "Light", rest: "45 sec", image: "./exercise-images/banded-lateral-walk.webp", youtubeId: null },
   { name: "Adductor machine", muscle: "Adductors", sets: 3, reps: "12-15", weight: "Medium", rest: "45 sec", image: null, youtubeId: null },
   { name: "Abductor machine", muscle: "Glute medius", sets: 3, reps: "15-20", weight: "Light-Medium", rest: "45 sec", image: null, youtubeId: null },
-  { name: "Donkey calf raise", muscle: "Calves", sets: 4, reps: "12-15", weight: "Medium", rest: "60 sec", image: null, youtubeId: null },
-  { name: "Single-leg calf raise", muscle: "Calves", sets: 3, reps: "12-15/leg", weight: "Light-Medium", rest: "45 sec", image: null, youtubeId: null },
-  { name: "Jump rope", muscle: "Calves / cardio", sets: 3, reps: "1-2 min", weight: "Light", rest: "45 sec", image: null, youtubeId: null },
-  { name: "Sit-up", muscle: "Core", sets: 3, reps: "15-20", weight: "Light", rest: "45 sec", image: null, youtubeId: null },
-  { name: "V-up", muscle: "Core", sets: 3, reps: "12-15", weight: "Light", rest: "45 sec", image: null, youtubeId: null },
-  { name: "Mountain climber", muscle: "Core / cardio", sets: 3, reps: "30-40 sec", weight: "Light", rest: "45 sec", image: null, youtubeId: null },
-  { name: "Dead bug", muscle: "Core", sets: 3, reps: "10-12/side", weight: "Light", rest: "45 sec", image: null, youtubeId: null },
-  { name: "Bird dog", muscle: "Core / lower back", sets: 3, reps: "10-12/side", weight: "Light", rest: "45 sec", image: null, youtubeId: null },
+  { name: "Donkey calf raise", muscle: "Calves", sets: 4, reps: "12-15", weight: "Medium", rest: "60 sec", image: "./exercise-images/donkey-calf-raise.webp", youtubeId: null },
+  { name: "Single-leg calf raise", muscle: "Calves", sets: 3, reps: "12-15/leg", weight: "Light-Medium", rest: "45 sec", image: "./exercise-images/single-leg-calf-raise.webp", youtubeId: null },
+  { name: "Jump rope", muscle: "Calves / cardio", sets: 3, reps: "1-2 min", weight: "Light", rest: "45 sec", image: "./exercise-images/jump-rope.webp", youtubeId: null },
+  { name: "Sit-up", muscle: "Core", sets: 3, reps: "15-20", weight: "Light", rest: "45 sec", image: "./exercise-images/sit-ups.webp", youtubeId: null },
+  { name: "V-up", muscle: "Core", sets: 3, reps: "12-15", weight: "Light", rest: "45 sec", image: "./exercise-images/v-ups.webp", youtubeId: null },
+  { name: "Mountain climber", muscle: "Core / cardio", sets: 3, reps: "30-40 sec", weight: "Light", rest: "45 sec", image: "./exercise-images/mountain-climbers.webp", youtubeId: null },
+  { name: "Dead bug", muscle: "Core", sets: 3, reps: "10-12/side", weight: "Light", rest: "45 sec", image: "./exercise-images/dead-bug.webp", youtubeId: null },
+  { name: "Bird dog", muscle: "Core / lower back", sets: 3, reps: "10-12/side", weight: "Light", rest: "45 sec", image: "./exercise-images/bird-dog.webp", youtubeId: null },
   { name: "Woodchopper (cable)", muscle: "Core (obliques)", sets: 3, reps: "10-12/side", weight: "Medium", rest: "60 sec", image: null, youtubeId: null },
-  { name: "Landmine rotation", muscle: "Core (obliques)", sets: 3, reps: "10-12/side", weight: "Light-Medium", rest: "60 sec", image: null, youtubeId: null },
-  { name: "Toes to bar", muscle: "Core", sets: 3, reps: "8-12", weight: "Heavy", rest: "90 sec", image: null, youtubeId: null },
-  { name: "Barbell rollout", muscle: "Core", sets: 3, reps: "8-12", weight: "Medium", rest: "60 sec", image: null, youtubeId: null },
-  { name: "Clean and press", muscle: "Full body", sets: 4, reps: "3-5", weight: "Heavy", rest: "3 min", image: null, youtubeId: null },
-  { name: "Power clean", muscle: "Full body / posterior chain", sets: 4, reps: "3-5", weight: "Heavy", rest: "3 min", image: null, youtubeId: null },
-  { name: "Snatch", muscle: "Full body", sets: 4, reps: "3-5", weight: "Heavy", rest: "3 min", image: null, youtubeId: null },
-  { name: "Kettlebell swing", muscle: "Glutes / hamstrings / core", sets: 3, reps: "15-20", weight: "Medium", rest: "60 sec", image: null, youtubeId: null },
-  { name: "Turkish get-up", muscle: "Full body / core", sets: 3, reps: "3-5/side", weight: "Light-Medium", rest: "90 sec", image: null, youtubeId: null },
-  { name: "Battle ropes", muscle: "Shoulders / cardio", sets: 4, reps: "20-30 sec", weight: "Light", rest: "45 sec", image: null, youtubeId: null },
+  { name: "Landmine rotation", muscle: "Core (obliques)", sets: 3, reps: "10-12/side", weight: "Light-Medium", rest: "60 sec", image: "./exercise-images/landmine-press.webp", youtubeId: null },
+  { name: "Toes to bar", muscle: "Core", sets: 3, reps: "8-12", weight: "Heavy", rest: "90 sec", image: "./exercise-images/toes-to-bar.webp", youtubeId: null },
+  { name: "Barbell rollout", muscle: "Core", sets: 3, reps: "8-12", weight: "Medium", rest: "60 sec", image: "./exercise-images/barbell-ab-rollout.webp", youtubeId: null },
+  { name: "Clean and press", muscle: "Full body", sets: 4, reps: "3-5", weight: "Heavy", rest: "3 min", image: "./exercise-images/double-kettlebell-clean-and-press.webp", youtubeId: null },
+  { name: "Power clean", muscle: "Full body / posterior chain", sets: 4, reps: "3-5", weight: "Heavy", rest: "3 min", image: "./exercise-images/hang-power-clean.webp", youtubeId: null },
+  { name: "Snatch", muscle: "Full body", sets: 4, reps: "3-5", weight: "Heavy", rest: "3 min", image: "./exercise-images/snatch.webp", youtubeId: null },
+  { name: "Kettlebell swing", muscle: "Glutes / hamstrings / core", sets: 3, reps: "15-20", weight: "Medium", rest: "60 sec", image: "./exercise-images/kettlebell-swing.webp", youtubeId: null },
+  { name: "Turkish get-up", muscle: "Full body / core", sets: 3, reps: "3-5/side", weight: "Light-Medium", rest: "90 sec", image: "./exercise-images/kettlebell-turkish-get-ups.webp", youtubeId: null },
+  { name: "Battle ropes", muscle: "Shoulders / cardio", sets: 4, reps: "20-30 sec", weight: "Light", rest: "45 sec", image: "./exercise-images/battle-ropes.webp", youtubeId: null },
   { name: "Sled push", muscle: "Quads / glutes / cardio", sets: 4, reps: "20-30m", weight: "Heavy", rest: "90 sec", image: null, youtubeId: null },
   { name: "Sled drag (backward)", muscle: "Quads", sets: 3, reps: "20-30m", weight: "Medium", rest: "90 sec", image: null, youtubeId: null },
   { name: "Tire flip", muscle: "Full body", sets: 3, reps: "6-10", weight: "Heavy", rest: "2 min", image: null, youtubeId: null },
-  { name: "Neck curl", muscle: "Neck", sets: 3, reps: "12-15", weight: "Light", rest: "45 sec", image: null, youtubeId: null },
+  { name: "Neck curl", muscle: "Neck", sets: 3, reps: "12-15", weight: "Light", rest: "45 sec", image: "./exercise-images/behind-the-neck-press.webp", youtubeId: null },
   { name: "Neck extension", muscle: "Neck", sets: 3, reps: "12-15", weight: "Light", rest: "45 sec", image: null, youtubeId: null },
 ];
 // The hardcoded list above is the offline-safe seed. Once the app loads,
@@ -2856,6 +2903,7 @@ export default function TrainingLog() {
   }, []);
   const [sessionOpen, setSessionOpen] = useState(false);
   const [modal, setModal] = useState(null);
+  const [addChooserOpen, setAddChooserOpen] = useState(false);
   const [newPlanOpen, setNewPlanOpen] = useState(false);
   const [manageDaysOpen, setManageDaysOpen] = useState(false);
   const [syncOpen, setSyncOpen] = useState(false);
@@ -3226,7 +3274,7 @@ export default function TrainingLog() {
                 )
               )}
               {day.exercises.length === 0 && <div className="sm:col-span-2 rounded-2xl border border-dashed border-line p-8 text-center text-base text-ink-faint">لا توجد تمارين في هذا اليوم بعد.</div>}
-              {!isReadOnly && <button onClick={guard(() => setModal({ mode: "add", exercise: emptyForm }))} className="sm:col-span-2 w-full rounded-2xl border-2 border-dashed border-line py-4 text-base font-bold text-ink-faint hover:border-charge hover:text-charge transition-colors flex items-center justify-center gap-1.5"><Plus className="w-5 h-5" /> إضافة تمرين</button>}
+              {!isReadOnly && <button onClick={guard(() => setAddChooserOpen(true))} className="sm:col-span-2 w-full rounded-2xl border-2 border-dashed border-line py-4 text-base font-bold text-ink-faint hover:border-charge hover:text-charge transition-colors flex items-center justify-center gap-1.5"><Plus className="w-5 h-5" /> إضافة تمرين</button>}
             </div>
 
             <footer className="mt-8 pt-4 border-t border-line text-xs text-ink-faint">
@@ -3395,6 +3443,14 @@ export default function TrainingLog() {
               </div>
               <input ref={fileInputRef} type="file" accept="application/json" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) importData(f); e.target.value = ""; }} />
             </section>
+
+            {/* Required by the RepDB free-tier license (LICENSE-DATA.md term 2):
+               a visible "Exercise data by RepDB (repdb.co)" credit somewhere
+               in the app. Placed here rather than buried in a modal so it's
+               always reachable, not just shown once on first launch. */}
+            <p className="text-center text-[11px] text-ink-faint pt-2 pb-1">
+              صور بعض التمارين من <a href="https://repdb.co" target="_blank" rel="noopener noreferrer" className="underline hover:text-charge">RepDB (repdb.co)</a>
+            </p>
           </div>
         )}
       </div>
@@ -3419,7 +3475,15 @@ export default function TrainingLog() {
         </div>
       </nav>
 
-      {modal && <ExerciseModal title={modal.mode === "add" ? "إضافة تمرين" : "تعديل تمرين"} initial={modal.exercise} isAdminUser={isAdminUser} currentUid={firebaseUser?.uid} canSubmitLibrary={canEdit} authorName={authorName} onCancel={() => setModal(null)} onSave={(form) => { if (modal.mode === "add") addExercise(form); else { updateExercise({ ...form, id: modal.exercise.id }); setModal(null); } }} />}
+      {addChooserOpen && (
+        <AddExerciseChooser
+          onCancel={() => setAddChooserOpen(false)}
+          onPick={(e) => { setAddChooserOpen(false); setModal({ mode: "add", exercise: { ...emptyForm, name: e.name, muscle: e.muscle, sets: e.sets, reps: e.reps, weight: e.weight, rest: e.rest, image: e.image, videoId: e.youtubeId || null } }); }}
+          onBrowseAll={() => { setAddChooserOpen(false); setModal({ mode: "add", exercise: emptyForm, autoOpenPicker: true }); }}
+          onCustom={() => { setAddChooserOpen(false); setModal({ mode: "add", exercise: emptyForm }); }}
+        />
+      )}
+      {modal && <ExerciseModal title={modal.mode === "add" ? "إضافة تمرين" : "تعديل تمرين"} initial={modal.exercise} isAdminUser={isAdminUser} currentUid={firebaseUser?.uid} canSubmitLibrary={canEdit} authorName={authorName} autoOpenPicker={modal.autoOpenPicker} onCancel={() => setModal(null)} onSave={(form) => { if (modal.mode === "add") addExercise(form); else { updateExercise({ ...form, id: modal.exercise.id }); setModal(null); } }} />}
       {newPlanOpen && <NewPlanModal onCancel={() => setNewPlanOpen(false)} onCreate={createPlan} />}
       {manageDaysOpen && <ManageDaysModal days={plan.days} onCancel={() => setManageDaysOpen(false)} onSave={saveDays} />}
       {syncOpen && <ProfileModal user={firebaseUser} authorName={authorName} onCancel={() => setSyncOpen(false)} onSignIn={doSignIn} onUpgrade={doUpgrade} onSignOut={doSignOut} status={syncStatus} error={syncError} />}
