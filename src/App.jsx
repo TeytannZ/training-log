@@ -83,8 +83,16 @@ const COMMON_EXERCISE_NAMES = [
 // your own site — no GitHub, no third-party site, for anyone downloading.
 const APK_DOWNLOAD_URL = "./downloads/training-log.apk";
 
-function ex(id, name, muscle, focus, sets, reps, weight, rest, alt = [], restBetweenExercises = null) {
-  return { id, name, muscle, focus, sets, reps, weight, rest, image: null, alt, restBetweenExercises };
+// `customized: true` on every stock exercise below is deliberate — these
+// numbers are the admin's own tuned program (injury-aware, specific rep
+// targets), not generic catalog defaults, so they're exempt from ever
+// being silently touched by a future library edit (see resolveLive /
+// pendingLibraryUpdates). `libraryId`, where set, still links the exercise
+// to a shared library entry for its PHOTO — images always try to fill in
+// regardless of the customized flag, since a missing photo isn't personal
+// data worth protecting.
+function ex(id, name, muscle, focus, sets, reps, weight, rest, alt = [], restBetweenExercises = null, libraryId = null) {
+  return { id, name, muscle, focus, sets, reps, weight, rest, image: null, alt, restBetweenExercises, libraryId, customized: true };
 }
 function mkDay(id, label, title, tagline, exercises) { return { id, label, title, tagline, exercises }; }
 
@@ -101,40 +109,40 @@ function mkDay(id, label, title, tagline, exercises) { return { id, label, title
 //   in that order.
 const UPPER_LOWER_DAYS = [
   mkDay("ul1", "اليوم 1", "علوي أ", "الظهر، الترابيس، الكتف الخلفي، البايسبس", [
-    ex("ul1e1", "Pull-up (unweighted, alternate supinated grip some sets)", "Back / biceps", false, 4, "AMRAP", "Heavy", "2.5 min"),
-    ex("ul1e2", "Barbell or dumbbell shrug", "Upper traps", false, 3, "10-12", "Medium", "90 sec", ["Cable shrug"]),
-    ex("ul1e3", "Face pull", "Rear delt / traps", false, 3, "12-15", "Light-Medium", "60 sec", ["Reverse pec-deck fly"]),
-    ex("ul1e4", "Chest-supported row (seated pulling machine)", "Back (mid-traps, rhomboids, lats)", false, 3, "10-12", "Medium", "90 sec", ["Seated cable row"]),
-    ex("ul1e5", "Lat pulldown (alternate grip each set)", "Back (lats) / biceps", false, 3, "10-12", "Medium", "90 sec", ["Assisted pull-up machine"]),
+    ex("ul1e1", "Pull-up (unweighted, alternate supinated grip some sets)", "Back / biceps", false, 4, "AMRAP", "Heavy", "2.5 min", [], null, "pull-up"),
+    ex("ul1e2", "Barbell or dumbbell shrug", "Upper traps", false, 3, "10-12", "Medium", "90 sec", ["Cable shrug"], null, "dumbbell-shrug"),
+    ex("ul1e3", "Face pull", "Rear delt / traps", false, 3, "12-15", "Light-Medium", "60 sec", ["Reverse pec-deck fly"], null, "face-pull"),
+    ex("ul1e4", "Chest-supported row (seated pulling machine)", "Back (mid-traps, rhomboids, lats)", false, 3, "10-12", "Medium", "90 sec", ["Seated cable row"], null, "chest-supported-row"),
+    ex("ul1e5", "Lat pulldown (alternate grip each set)", "Back (lats) / biceps", false, 3, "10-12", "Medium", "90 sec", ["Assisted pull-up machine"], null, "lat-pulldown"),
     ex("ul1e6", "Cable curl — short head (elbows forward)", "Biceps", false, 2, "12-15", "Light-Medium", "60 sec"),
     ex("ul1e7", "Cable curl — long head (elbows back)", "Biceps", false, 2, "12-15", "Light-Medium", "60 sec"),
     ex("ul1e8", "Cable curl — brachialis (hammer/neutral grip)", "Biceps / brachialis", false, 2, "12-15", "Light-Medium", "60 sec"),
   ]),
   mkDay("ul2", "اليوم 2", "سفلي أ", "الفخذ الأمامي، الهامسترينغ، المؤخرة، السمانة، الجذع", [
-    ex("ul2e1", "Back squat", "Quads / glutes", false, 4, "4-6", "Heavy", "3 min", ["Hack squat (use if leg is still sensitive — less axial load)"]),
-    ex("ul2e2", "Lying leg curl", "Hamstrings", false, 3, "10-12", "Medium", "90 sec"),
-    ex("ul2e3", "Leg press (wide/high foot placement)", "Glutes (maximus-biased)", false, 3, "8-10", "Medium-Heavy", "2 min", ["Cable kickback"]),
-    ex("ul2e4", "Leg extension", "Quads", false, 3, "12-15", "Light-Medium", "60 sec"),
-    ex("ul2e5", "Standing calf raise", "Calves (gastrocnemius)", false, 4, "15-20", "Light", "60 sec", ["Leg press calf raise"]),
-    ex("ul2e6", "Hanging leg raise", "Abs (front)", false, 3, "12-15", "Light-Medium", "60 sec", ["Cable crunch"]),
+    ex("ul2e1", "Back squat", "Quads / glutes", false, 4, "4-6", "Heavy", "3 min", ["Hack squat (use if leg is still sensitive — less axial load)"], null, "back-squat"),
+    ex("ul2e2", "Lying leg curl", "Hamstrings", false, 3, "10-12", "Medium", "90 sec", [], null, "lying-leg-curl"),
+    ex("ul2e3", "Leg press (wide/high foot placement)", "Glutes (maximus-biased)", false, 3, "8-10", "Medium-Heavy", "2 min", ["Cable kickback"], null, "leg-press"),
+    ex("ul2e4", "Leg extension", "Quads", false, 3, "12-15", "Light-Medium", "60 sec", [], null, "leg-extension"),
+    ex("ul2e5", "Standing calf raise", "Calves (gastrocnemius)", false, 4, "15-20", "Light", "60 sec", ["Leg press calf raise"], null, "standing-calf-raise"),
+    ex("ul2e6", "Hanging leg raise", "Abs (front)", false, 3, "12-15", "Light-Medium", "60 sec", ["Cable crunch"], null, "hanging-leg-raise"),
   ]),
   mkDay("ul3", "اليوم 3", "علوي ب", "الصدر، الكتف الأمامي/الجانبي، الترايسبس", [
-    ex("ul3e1", "Incline dumbbell or barbell press", "Chest (upper) / front delt", false, 3, "8-10", "Medium-Heavy", "2 min"),
-    ex("ul3e2", "Dips (unweighted)", "Chest / triceps", false, 3, "AMRAP", "Heavy", "2 min"),
-    ex("ul3e3", "Flat bench or dumbbell press", "Chest", false, 3, "8-10", "Medium-Heavy", "2 min"),
-    ex("ul3e4", "Lateral raise (cable, leaning away)", "Side delt", false, 3, "12-15", "Light-Medium", "60 sec", ["Dumbbell lateral raise"]),
-    ex("ul3e5", "Rear-delt cable fly (45°)", "Rear delt / traps", false, 3, "12-15", "Light-Medium", "60 sec"),
-    ex("ul3e6", "Triceps pushdown", "Triceps", false, 2, "10-12", "Medium", "60 sec"),
-    ex("ul3e7", "One-arm overhead cable extension", "Triceps", false, 2, "10-12", "Medium", "60 sec"),
+    ex("ul3e1", "Incline dumbbell or barbell press", "Chest (upper) / front delt", false, 3, "8-10", "Medium-Heavy", "2 min", [], null, "incline-dumbbell-press"),
+    ex("ul3e2", "Dips (unweighted)", "Chest / triceps", false, 3, "AMRAP", "Heavy", "2 min", [], null, "dips"),
+    ex("ul3e3", "Flat bench or dumbbell press", "Chest", false, 3, "8-10", "Medium-Heavy", "2 min", [], null, "flat-bench-press"),
+    ex("ul3e4", "Lateral raise (cable, leaning away)", "Side delt", false, 3, "12-15", "Light-Medium", "60 sec", ["Dumbbell lateral raise"], null, "lateral-raise"),
+    ex("ul3e5", "Rear-delt cable fly (45°)", "Rear delt / traps", false, 3, "12-15", "Light-Medium", "60 sec", [], null, "cable-rear-delt-fly"),
+    ex("ul3e6", "Triceps pushdown", "Triceps", false, 2, "10-12", "Medium", "60 sec", [], null, "triceps-pushdown"),
+    ex("ul3e7", "One-arm overhead cable extension", "Triceps", false, 2, "10-12", "Medium", "60 sec", [], null, "overhead-cable-triceps-extension"),
   ]),
   mkDay("ul4", "اليوم 4", "سفلي ب", "الهامسترينغ، المؤخرة، السمانة، الجذع، الساعدين · إن أدرت 3 جلسات فقط: نفّذ 1←2←3 بالترتيب وتجاوز هذا اليوم — كل ما فيه مغطى مسبقاً في الأسبوع بحجم أقل", [
-    ex("ul4e1", "Deadlift", "Hamstrings / glutes / erectors", false, 4, "4-6", "Heavy", "3 min", ["Romanian deadlift (use if leg is still sensitive, or as a straight swap)"]),
-    ex("ul4e2", "Bulgarian split squat", "Glutes / quads", false, 3, "10-12/leg", "Medium", "90 sec", ["Walking lunge"]),
-    ex("ul4e3", "Cable kickback", "Glutes (maximus)", false, 3, "12-15/leg", "Light-Medium", "60 sec", ["Single-leg leg press, feet high"]),
-    ex("ul4e4", "Leg press calf raise", "Calves (soleus)", false, 4, "12-15", "Light-Medium", "60 sec", ["Single-leg standing calf raise (higher reps to compensate for less load)"]),
-    ex("ul4e5", "Pallof press", "Obliques", false, 3, "10-12/side", "Medium", "60 sec", ["Cable woodchop"]),
-    ex("ul4e6", "Wrist curl", "Forearms", false, 2, "12-15", "Light-Medium", "60 sec"),
-    ex("ul4e7", "Reverse wrist curl", "Forearms", false, 2, "12-15", "Light-Medium", "60 sec"),
+    ex("ul4e1", "Deadlift", "Hamstrings / glutes / erectors", false, 4, "4-6", "Heavy", "3 min", ["Romanian deadlift (use if leg is still sensitive, or as a straight swap)"], null, "deadlift"),
+    ex("ul4e2", "Bulgarian split squat", "Glutes / quads", false, 3, "10-12/leg", "Medium", "90 sec", ["Walking lunge"], null, "bulgarian-split-squat"),
+    ex("ul4e3", "Cable kickback", "Glutes (maximus)", false, 3, "12-15/leg", "Light-Medium", "60 sec", ["Single-leg leg press, feet high"], null, "cable-kickback"),
+    ex("ul4e4", "Leg press calf raise", "Calves (soleus)", false, 4, "12-15", "Light-Medium", "60 sec", ["Single-leg standing calf raise (higher reps to compensate for less load)"], null, "leg-press-calf-raise"),
+    ex("ul4e5", "Pallof press", "Obliques", false, 3, "10-12/side", "Medium", "60 sec", ["Cable woodchop"], null, "pallof-press"),
+    ex("ul4e6", "Wrist curl", "Forearms", false, 2, "12-15", "Light-Medium", "60 sec", [], null, "wrist-curl"),
+    ex("ul4e7", "Reverse wrist curl", "Forearms", false, 2, "12-15", "Light-Medium", "60 sec", [], null, "reverse-wrist-curl"),
   ]),
 ];
 
@@ -550,8 +558,8 @@ const sheetClass = "bg-card w-full sm:max-w-md sm:rounded-2xl rounded-t-2xl max-
 const WEIGHT_LABEL_AR = { Light: "خفيف", "Light-Medium": "خفيف-متوسط", Medium: "متوسط", "Medium-Heavy": "متوسط-ثقيل", Heavy: "ثقيل" };
 function wLabel(w) { return WEIGHT_LABEL_AR[w] || w; }
 
-const EXNAME_AR = {"Weighted pull-up": "عقلة بوزن إضافي", "Chest-supported row": "تجديف بإسناد الصدر", "Incline dumbbell press": "ضغط دمبل مائل", "Face pull": "سحب للوجه", "Barbell shrug": "هز الكتفين بالبار", "Cable curl — short head (elbows forward)": "بايسبس الكيبل (الرأس القصير)", "Cable curl — long head (elbows back)": "بايسبس الكيبل (الرأس الطويل)", "Back squat": "القرفصاء الخلفية", "Romanian deadlift": "الرفعة الرومانية", "Hip thrust": "دفع الحوض", "Leg extension": "فرد الساق", "Standing calf raise": "رفع الكعبين واقفًا", "Hanging leg raise": "رفع الأرجل على العقلة", "Flat barbell bench press": "ضغط البنش المستوي", "Weighted dips": "المتوازي بوزن إضافي", "Lat pulldown, underhand grip": "السحب الأمامي بقبضة معكوسة", "Cable lateral raise (leaning away)": "رفع جانبي بالكيبل (مائلًا بعيدًا)", "Rear-delt cable fly (45°)": "فراشة الكيبل للكتف الخلفي", "Overhead one-arm cable extension": "فرد الترايسبس بالكيبل فوق الرأس", "One-arm cable pushdown": "دفع الترايسبس بالكيبل بيد واحدة", "Deadlift (conventional or RDL)": "الرفعة الميتة (تقليدية أو رومانية)", "Bulgarian split squat": "القرفصاء البلغارية", "Lying leg curl": "ثني الساق مستلقيًا", "Hip abduction machine": "جهاز إبعاد الفخذ", "Seated calf raise": "رفع الكعبين جالسًا", "Weighted plank / Pallof press": "بلانك بوزن إضافي / دفع بالوف", "Flat bench press": "ضغط البنش المستوي", "Seated cable row": "تجديف الكيبل جالسًا", "Plank": "بلانك", "Overhead press": "ضغط الكتف فوق الرأس", "Lat pulldown": "السحب الأمامي", "Hanging knee raise": "رفع الركبتين على العقلة", "Dumbbell shrug": "هز الكتفين بالدمبل", "Leg press": "مكبس الأرجل", "Seated cable row (wide grip)": "تجديف الكيبل جالسًا (قبضة عريضة)", "Bicep curl": "بايسبس كيرل", "Triceps pushdown": "دفع الترايسبس", "Leg curl": "ثني الساق", "Cable crunch": "كرانش الكيبل", "EZ bar curl": "بايسبس بار EZ", "Deadlift": "الرفعة الميتة", "Walking lunge": "طعنة المشي", "Pull-up (assisted if needed)": "عقلة (بمساعدة إن لزم)", "Lateral raise": "رفع جانبي", "Weighted step-up": "صعود الدرج بوزن إضافي", "Calf raise on leg press": "رفع الكعبين على مكبس الأرجل", "Reverse crunch": "كرانش عكسي", "Suitcase carry": "حمل الحقيبة", "Cable lateral raise": "رفع جانبي بالكيبل", "Prone Y-raise": "رفع Y مستلقيًا", "Cable external rotation": "الدوران الخارجي بالكيبل", "Reverse curl": "كيرل معكوس", "Farmer's hold": "حمل المزارع", "Dips": "المتوازي", "Pull-up": "عقلة", "Lat pulldown, wide grip": "السحب الأمامي بقبضة عريضة", "Incline barbell press": "ضغط البار المائل", "Reverse pec-deck fly": "الفراشة العكسية", "Cable shrug": "هز الكتفين بالكيبل", "Hack squat": "الهاك سكوات", "Cable pull-through": "سحب الكيبل من بين الساقين", "Flat dumbbell press": "ضغط الدمبل المستوي", "Close-grip bench press": "ضغط البنش بقبضة ضيقة", "Chin-ups": "عقلة بقبضة معكوسة", "Dumbbell lateral raise": "رفع جانبي بالدمبل", "Machine reverse fly": "الفراشة العكسية بالجهاز", "Trap bar deadlift": "الرفعة الميتة ببار مثلث", "Banded lateral walk": "المشي الجانبي بشريط المقاومة", "Side plank": "بلانك جانبي", "Hammer curl": "بايسبس المطرقة", "Preacher curl": "بايسبس بمقعد الواعظ", "Overhead triceps extension": "فرد الترايسبس فوق الرأس", "Skull crusher": "سكال كراشر (فرد الترايسبس بالبار)", "Cable chest fly": "فراشة الصدر بالكيبل", "Push-up": "ضغط الأرض", "Barbell row": "تجديف بالبار", "Single-arm dumbbell row": "تجديف بالدمبل بيد واحدة", "Straight-arm pulldown": "سحب الذراع المستقيمة", "Glute bridge": "جسر الأرداف", "Cable kickback": "ركل الأرداف بالكيبل", "Goblet squat": "قرفصاء الكأس", "Front squat": "القرفصاء الأمامية", "Russian twist": "اللف الروسي", "Ab wheel rollout": "عجلة البطن", "Arnold press": "ضغط أرنولد", "Rear delt fly": "فراشة الكتف الخلفي", "Chin-up": "عقلة بقبضة معكوسة", "Cable fly (low-to-high)": "فراشة الكيبل من الأسفل للأعلى", "Cable fly (high-to-low)": "فراشة الكيبل من الأعلى للأسفل", "Machine chest press": "ضغط الصدر بالجهاز", "Decline bench press": "ضغط البنش المائل للأسفل", "Incline cable fly": "فراشة الكيبل المائلة", "Pec-deck fly": "فراشة جهاز الصدر", "Landmine press": "ضغط لاندماين", "T-bar row": "تجديف تي بار", "Meadows row": "تجديف ميدوز", "Pendlay row": "تجديف بندلاي", "Inverted row": "التجديف المعكوس", "Machine row": "تجديف بالجهاز", "Wide-grip pull-up": "عقلة بقبضة عريضة", "Neutral-grip pull-up": "عقلة بقبضة محايدة", "Rack pull": "سحب من الرف", "Good morning": "جود مورنينج (انحناء الظهر)", "Hyperextension (back extension)": "فرد الظهر", "Seal row": "تجديف سيل", "Cable seated row (single arm)": "تجديف الكيبل جالسًا بيد واحدة", "Machine shoulder press": "ضغط الكتف بالجهاز", "Seated dumbbell shoulder press": "ضغط الكتف بالدمبل جالسًا", "Upright row": "التجديف العمودي", "Cable rear-delt fly": "فراشة الكيبل للكتف الخلفي", "Machine lateral raise": "رفع جانبي بالجهاز", "Bent-over dumbbell rear delt raise": "رفع الكتف الخلفي بالدمبل منحنيًا", "Behind-the-neck press": "ضغط خلف الرقبة", "Shrug (machine)": "هز الكتفين بالجهاز", "Incline dumbbell curl": "بايسبس دمبل مائل", "Concentration curl": "بايسبس التركيز", "Cable curl (bar)": "بايسبس الكيبل بالبار", "Spider curl": "بايسبس سبايدر", "Drag curl": "بايسبس دراغ كيرل", "21s bicep curl": "بايسبس 21", "Overhead cable triceps extension": "فرد الترايسبس بالكيبل فوق الرأس", "Rope pushdown": "دفع الترايسبس بالحبل", "Diamond push-up": "ضغط الماس", "Dumbbell kickback": "ركل الترايسبس بالدمبل", "JM press": "ضغط جيه إم", "Wrist curl": "ثني الرسغ", "Reverse wrist curl": "ثني الرسغ العكسي", "Plate pinch hold": "قبض القرص", "Dead hang": "التعلق الميت", "Sumo deadlift": "الرفعة الميتة سومو", "Zercher squat": "قرفصاء زيرشر", "Box squat": "قرفصاء الصندوق", "Pause squat": "قرفصاء بوقفة", "Sissy squat": "قرفصاء سيسي", "Smith machine squat": "قرفصاء جهاز سميث", "Nordic hamstring curl": "ثني الفخذ الخلفي نورديك", "Seated leg curl": "ثني الساق جالسًا", "Stiff-leg deadlift": "الرفعة الميتة بأرجل مستقيمة", "Single-leg Romanian deadlift": "الرفعة الرومانية برجل واحدة", "Reverse lunge": "طعنة خلفية", "Lateral lunge": "طعنة جانبية", "Curtsy lunge": "طعنة كيرتسي", "Single-leg hip thrust": "دفع الحوض برجل واحدة", "Frog pump": "دفع الضفدع", "Adductor machine": "جهاز تقريب الفخذ", "Abductor machine": "جهاز إبعاد الفخذ", "Donkey calf raise": "رفع الكعبين دونكي", "Single-leg calf raise": "رفع الكعبين برجل واحدة", "Jump rope": "نط الحبل", "Sit-up": "تمرين البطن (سيت أب)", "V-up": "تمرين V", "Mountain climber": "متسلق الجبل", "Dead bug": "ديد باغ (ثبات البطن)", "Bird dog": "بيرد دوغ (ثبات الظهر)", "Woodchopper (cable)": "تقطيع الحطب بالكيبل", "Landmine rotation": "دوران لاندماين", "Toes to bar": "لمس القدمين للعقلة", "Barbell rollout": "دحرجة البار", "Clean and press": "كلين آند بريس", "Power clean": "باور كلين", "Snatch": "الخطف (سناتش)", "Kettlebell swing": "أرجحة الكيتلبل", "Turkish get-up": "النهوض التركي", "Battle ropes": "حبال المعركة", "Sled push": "دفع الزحافة", "Sled drag (backward)": "سحب الزحافة للخلف", "Tire flip": "قلب الإطار", "Neck curl": "ثني الرقبة", "Neck extension": "فرد الرقبة"};
-const MUSCLE_AR = {"Back": "الظهر", "Chest": "الصدر", "Rear delt / traps": "الكتف الخلفي والترابيس", "Traps": "الترابيس", "Biceps": "البايسبس", "Quads": "الفخذ الأمامي", "Hamstrings": "الفخذ الخلفي", "Glutes": "الأرداف", "Calves": "السمانة", "Core": "البطن", "Chest / triceps": "الصدر والترايسبس", "Delts": "الكتفين", "Rear delt": "الكتف الخلفي", "Triceps": "الترايسبس", "Hamstrings / glutes": "الفخذ الخلفي والأرداف", "Glute medius": "جانب الأرداف", "Core (anti-rotation)": "البطن (ثبات ضد الالتواء)", "Quads / glutes": "الفخذ الأمامي والأرداف", "Posterior chain": "الظهر والأرداف", "Quads / glute max": "الفخذ الأمامي والأرداف", "Glute max": "الأرداف", "Core (anti-lateral-flexion)": "البطن (ثبات جانبي)", "Delts (front)": "الكتف الأمامي", "Delts (side)": "الكتف الجانبي", "Lower traps / posture": "الترابيس السفلية والقوام", "Rotator cuff / shoulder posture": "استقرار الكتف", "Forearms": "الساعدين", "Forearms / grip": "الساعدين وقوة القبضة", "Hamstrings / glute max": "الفخذ الخلفي والأرداف", "Chest (upper)": "الصدر العلوي", "Chest (lower) / triceps": "الصدر السفلي والترايسبس", "Adductors": "المقربة (الفخذ الداخلي)", "Back (lats)": "الظهر (العضلة الظهرية)", "Back / biceps": "الظهر والبايسبس", "Back / lats": "الظهر والعضلة الظهرية", "Back / posterior chain": "الظهر والسلسلة الخلفية", "Biceps / forearms": "البايسبس والساعدين", "Calves / cardio": "السمانة والكارديو", "Chest (lower)": "الصدر السفلي", "Chest (upper) / front delt": "الصدر العلوي والكتف الأمامي", "Core (obliques)": "البطن (الجانبية)", "Core / cardio": "البطن والكارديو", "Core / lower back": "البطن وأسفل الظهر", "Delts (front/side)": "الكتف الأمامي والجانبي", "Delts (side) / traps": "الكتف الجانبي والترابيس", "Full body": "كامل الجسم", "Full body / core": "كامل الجسم والبطن", "Full body / posterior chain": "كامل الجسم والسلسلة الخلفية", "Glute medius / quads": "جانب الأرداف والفخذ الأمامي", "Glutes / adductors": "الأرداف والمقربة", "Glutes / hamstrings": "الأرداف والفخذ الخلفي", "Glutes / hamstrings / core": "الأرداف والفخذ الخلفي والبطن", "Glutes / quads": "الأرداف والفخذ الأمامي", "Hamstrings / glutes / balance": "الفخذ الخلفي والأرداف والتوازن", "Hamstrings / lower back": "الفخذ الخلفي وأسفل الظهر", "Lats": "العضلة الظهرية", "Lower back / glutes": "أسفل الظهر والأرداف", "Neck": "الرقبة", "Posterior chain / glutes": "السلسلة الخلفية والأرداف", "Quads / core": "الفخذ الأمامي والبطن", "Quads / glutes / cardio": "الفخذ الأمامي والأرداف والكارديو", "Shoulders / cardio": "الكتفين والكارديو", "Triceps / chest": "الترايسبس والصدر"};
+const EXNAME_AR = {"Weighted pull-up": "عقلة بوزن إضافي", "Chest-supported row": "تجديف بإسناد الصدر", "Incline dumbbell press": "ضغط دمبل مائل", "Face pull": "سحب للوجه", "Barbell shrug": "هز الكتفين بالبار", "Cable curl — short head (elbows forward)": "بايسبس الكيبل (الرأس القصير)", "Cable curl — long head (elbows back)": "بايسبس الكيبل (الرأس الطويل)", "Back squat": "القرفصاء الخلفية", "Romanian deadlift": "الرفعة الرومانية", "Hip thrust": "دفع الحوض", "Leg extension": "فرد الساق", "Standing calf raise": "رفع الكعبين واقفًا", "Hanging leg raise": "رفع الأرجل على العقلة", "Flat barbell bench press": "ضغط البنش المستوي", "Weighted dips": "المتوازي بوزن إضافي", "Lat pulldown, underhand grip": "السحب الأمامي بقبضة معكوسة", "Cable lateral raise (leaning away)": "رفع جانبي بالكيبل (مائلًا بعيدًا)", "Rear-delt cable fly (45°)": "فراشة الكيبل للكتف الخلفي", "Overhead one-arm cable extension": "فرد الترايسبس بالكيبل فوق الرأس", "One-arm cable pushdown": "دفع الترايسبس بالكيبل بيد واحدة", "Deadlift (conventional or RDL)": "الرفعة الميتة (تقليدية أو رومانية)", "Bulgarian split squat": "القرفصاء البلغارية", "Lying leg curl": "ثني الساق مستلقيًا", "Hip abduction machine": "جهاز إبعاد الفخذ", "Seated calf raise": "رفع الكعبين جالسًا", "Weighted plank / Pallof press": "بلانك بوزن إضافي / دفع بالوف", "Flat bench press": "ضغط البنش المستوي", "Seated cable row": "تجديف الكيبل جالسًا", "Plank": "بلانك", "Overhead press": "ضغط الكتف فوق الرأس", "Lat pulldown": "السحب الأمامي", "Hanging knee raise": "رفع الركبتين على العقلة", "Dumbbell shrug": "هز الكتفين بالدمبل", "Leg press": "مكبس الأرجل", "Seated cable row (wide grip)": "تجديف الكيبل جالسًا (قبضة عريضة)", "Bicep curl": "بايسبس كيرل", "Triceps pushdown": "دفع الترايسبس", "Leg curl": "ثني الساق", "Cable crunch": "كرانش الكيبل", "EZ bar curl": "بايسبس بار EZ", "Deadlift": "الرفعة الميتة", "Walking lunge": "طعنة المشي", "Pull-up (assisted if needed)": "عقلة (بمساعدة إن لزم)", "Lateral raise": "رفع جانبي", "Weighted step-up": "صعود الدرج بوزن إضافي", "Calf raise on leg press": "رفع الكعبين على مكبس الأرجل", "Reverse crunch": "كرانش عكسي", "Suitcase carry": "حمل الحقيبة", "Cable lateral raise": "رفع جانبي بالكيبل", "Prone Y-raise": "رفع Y مستلقيًا", "Cable external rotation": "الدوران الخارجي بالكيبل", "Reverse curl": "كيرل معكوس", "Farmer's hold": "حمل المزارع", "Dips": "المتوازي", "Pull-up": "عقلة", "Lat pulldown, wide grip": "السحب الأمامي بقبضة عريضة", "Incline barbell press": "ضغط البار المائل", "Reverse pec-deck fly": "الفراشة العكسية", "Cable shrug": "هز الكتفين بالكيبل", "Hack squat": "الهاك سكوات", "Cable pull-through": "سحب الكيبل من بين الساقين", "Flat dumbbell press": "ضغط الدمبل المستوي", "Close-grip bench press": "ضغط البنش بقبضة ضيقة", "Chin-ups": "عقلة بقبضة معكوسة", "Dumbbell lateral raise": "رفع جانبي بالدمبل", "Machine reverse fly": "الفراشة العكسية بالجهاز", "Trap bar deadlift": "الرفعة الميتة ببار مثلث", "Banded lateral walk": "المشي الجانبي بشريط المقاومة", "Side plank": "بلانك جانبي", "Hammer curl": "بايسبس المطرقة", "Preacher curl": "بايسبس بمقعد الواعظ", "Overhead triceps extension": "فرد الترايسبس فوق الرأس", "Skull crusher": "سكال كراشر (فرد الترايسبس بالبار)", "Cable chest fly": "فراشة الصدر بالكيبل", "Push-up": "ضغط الأرض", "Barbell row": "تجديف بالبار", "Single-arm dumbbell row": "تجديف بالدمبل بيد واحدة", "Straight-arm pulldown": "سحب الذراع المستقيمة", "Glute bridge": "جسر الأرداف", "Cable kickback": "ركل الأرداف بالكيبل", "Goblet squat": "قرفصاء الكأس", "Front squat": "القرفصاء الأمامية", "Russian twist": "اللف الروسي", "Ab wheel rollout": "عجلة البطن", "Arnold press": "ضغط أرنولد", "Rear delt fly": "فراشة الكتف الخلفي", "Chin-up": "عقلة بقبضة معكوسة", "Cable fly (low-to-high)": "فراشة الكيبل من الأسفل للأعلى", "Cable fly (high-to-low)": "فراشة الكيبل من الأعلى للأسفل", "Machine chest press": "ضغط الصدر بالجهاز", "Decline bench press": "ضغط البنش المائل للأسفل", "Incline cable fly": "فراشة الكيبل المائلة", "Pec-deck fly": "فراشة جهاز الصدر", "Landmine press": "ضغط لاندماين", "T-bar row": "تجديف تي بار", "Meadows row": "تجديف ميدوز", "Pendlay row": "تجديف بندلاي", "Inverted row": "التجديف المعكوس", "Machine row": "تجديف بالجهاز", "Wide-grip pull-up": "عقلة بقبضة عريضة", "Neutral-grip pull-up": "عقلة بقبضة محايدة", "Rack pull": "سحب من الرف", "Good morning": "جود مورنينج (انحناء الظهر)", "Hyperextension (back extension)": "فرد الظهر", "Seal row": "تجديف سيل", "Cable seated row (single arm)": "تجديف الكيبل جالسًا بيد واحدة", "Machine shoulder press": "ضغط الكتف بالجهاز", "Seated dumbbell shoulder press": "ضغط الكتف بالدمبل جالسًا", "Upright row": "التجديف العمودي", "Cable rear-delt fly": "فراشة الكيبل للكتف الخلفي", "Machine lateral raise": "رفع جانبي بالجهاز", "Bent-over dumbbell rear delt raise": "رفع الكتف الخلفي بالدمبل منحنيًا", "Behind-the-neck press": "ضغط خلف الرقبة", "Shrug (machine)": "هز الكتفين بالجهاز", "Incline dumbbell curl": "بايسبس دمبل مائل", "Concentration curl": "بايسبس التركيز", "Cable curl (bar)": "بايسبس الكيبل بالبار", "Spider curl": "بايسبس سبايدر", "Drag curl": "بايسبس دراغ كيرل", "21s bicep curl": "بايسبس 21", "Overhead cable triceps extension": "فرد الترايسبس بالكيبل فوق الرأس", "Rope pushdown": "دفع الترايسبس بالحبل", "Diamond push-up": "ضغط الماس", "Dumbbell kickback": "ركل الترايسبس بالدمبل", "JM press": "ضغط جيه إم", "Wrist curl": "ثني الرسغ", "Reverse wrist curl": "ثني الرسغ العكسي", "Plate pinch hold": "قبض القرص", "Dead hang": "التعلق الميت", "Sumo deadlift": "الرفعة الميتة سومو", "Zercher squat": "قرفصاء زيرشر", "Box squat": "قرفصاء الصندوق", "Pause squat": "قرفصاء بوقفة", "Sissy squat": "قرفصاء سيسي", "Smith machine squat": "قرفصاء جهاز سميث", "Nordic hamstring curl": "ثني الفخذ الخلفي نورديك", "Seated leg curl": "ثني الساق جالسًا", "Stiff-leg deadlift": "الرفعة الميتة بأرجل مستقيمة", "Single-leg Romanian deadlift": "الرفعة الرومانية برجل واحدة", "Reverse lunge": "طعنة خلفية", "Lateral lunge": "طعنة جانبية", "Curtsy lunge": "طعنة كيرتسي", "Single-leg hip thrust": "دفع الحوض برجل واحدة", "Frog pump": "دفع الضفدع", "Adductor machine": "جهاز تقريب الفخذ", "Abductor machine": "جهاز إبعاد الفخذ", "Donkey calf raise": "رفع الكعبين دونكي", "Single-leg calf raise": "رفع الكعبين برجل واحدة", "Jump rope": "نط الحبل", "Sit-up": "تمرين البطن (سيت أب)", "V-up": "تمرين V", "Mountain climber": "متسلق الجبل", "Dead bug": "ديد باغ (ثبات البطن)", "Bird dog": "بيرد دوغ (ثبات الظهر)", "Woodchopper (cable)": "تقطيع الحطب بالكيبل", "Landmine rotation": "دوران لاندماين", "Toes to bar": "لمس القدمين للعقلة", "Barbell rollout": "دحرجة البار", "Clean and press": "كلين آند بريس", "Power clean": "باور كلين", "Snatch": "الخطف (سناتش)", "Kettlebell swing": "أرجحة الكيتلبل", "Turkish get-up": "النهوض التركي", "Battle ropes": "حبال المعركة", "Sled push": "دفع الزحافة", "Sled drag (backward)": "سحب الزحافة للخلف", "Tire flip": "قلب الإطار", "Neck curl": "ثني الرقبة", "Neck extension": "فرد الرقبة", "Pull-up (unweighted, alternate supinated grip some sets)": "عقلة (بدون وزن، بعض المجموعات بقبضة تحتية بديلة)", "Barbell or dumbbell shrug": "هز الكتفين بالبار أو الدمبل", "Chest-supported row (seated pulling machine)": "تجديف بجهاز السحب الجالس (مسنود على الصدر)", "Lat pulldown (alternate grip each set)": "سحب علوي (تبديل القبضة كل مجموعة)", "Cable curl — brachialis (hammer/neutral grip)": "بايسبس كيبل — العضلة العضدية (قبضة مطرقة)", "Leg press (wide/high foot placement)": "ضغط الأرجل (وضع قدم عريض ومرتفع)", "Incline dumbbell or barbell press": "ضغط مائل بالدمبل أو البار", "Dips (unweighted)": "متوازي (بدون وزن)", "Flat bench or dumbbell press": "ضغط بنش مسطح بالبار أو الدمبل", "Lateral raise (cable, leaning away)": "رفع جانبي بالكيبل (بالانحناء بعيدًا)", "One-arm overhead cable extension": "فرد الترايسبس بالكيبل فوق الرأس بيد واحدة", "Leg press calf raise": "رفع الكعبين على جهاز ضغط الأرجل", "Pallof press": "بالوف برس (مقاومة دورانية للجذع)"};
+const MUSCLE_AR = {"Back": "الظهر", "Chest": "الصدر", "Rear delt / traps": "الكتف الخلفي والترابيس", "Traps": "الترابيس", "Biceps": "البايسبس", "Quads": "الفخذ الأمامي", "Hamstrings": "الفخذ الخلفي", "Glutes": "الأرداف", "Calves": "السمانة", "Core": "البطن", "Chest / triceps": "الصدر والترايسبس", "Delts": "الكتفين", "Rear delt": "الكتف الخلفي", "Triceps": "الترايسبس", "Hamstrings / glutes": "الفخذ الخلفي والأرداف", "Glute medius": "جانب الأرداف", "Core (anti-rotation)": "البطن (ثبات ضد الالتواء)", "Quads / glutes": "الفخذ الأمامي والأرداف", "Posterior chain": "الظهر والأرداف", "Quads / glute max": "الفخذ الأمامي والأرداف", "Glute max": "الأرداف", "Core (anti-lateral-flexion)": "البطن (ثبات جانبي)", "Delts (front)": "الكتف الأمامي", "Delts (side)": "الكتف الجانبي", "Lower traps / posture": "الترابيس السفلية والقوام", "Rotator cuff / shoulder posture": "استقرار الكتف", "Forearms": "الساعدين", "Forearms / grip": "الساعدين وقوة القبضة", "Hamstrings / glute max": "الفخذ الخلفي والأرداف", "Chest (upper)": "الصدر العلوي", "Chest (lower) / triceps": "الصدر السفلي والترايسبس", "Adductors": "المقربة (الفخذ الداخلي)", "Back (lats)": "الظهر (العضلة الظهرية)", "Back / biceps": "الظهر والبايسبس", "Back / lats": "الظهر والعضلة الظهرية", "Back / posterior chain": "الظهر والسلسلة الخلفية", "Biceps / forearms": "البايسبس والساعدين", "Calves / cardio": "السمانة والكارديو", "Chest (lower)": "الصدر السفلي", "Chest (upper) / front delt": "الصدر العلوي والكتف الأمامي", "Core (obliques)": "البطن (الجانبية)", "Core / cardio": "البطن والكارديو", "Core / lower back": "البطن وأسفل الظهر", "Delts (front/side)": "الكتف الأمامي والجانبي", "Delts (side) / traps": "الكتف الجانبي والترابيس", "Full body": "كامل الجسم", "Full body / core": "كامل الجسم والبطن", "Full body / posterior chain": "كامل الجسم والسلسلة الخلفية", "Glute medius / quads": "جانب الأرداف والفخذ الأمامي", "Glutes / adductors": "الأرداف والمقربة", "Glutes / hamstrings": "الأرداف والفخذ الخلفي", "Glutes / hamstrings / core": "الأرداف والفخذ الخلفي والبطن", "Glutes / quads": "الأرداف والفخذ الأمامي", "Hamstrings / glutes / balance": "الفخذ الخلفي والأرداف والتوازن", "Hamstrings / lower back": "الفخذ الخلفي وأسفل الظهر", "Lats": "العضلة الظهرية", "Lower back / glutes": "أسفل الظهر والأرداف", "Neck": "الرقبة", "Posterior chain / glutes": "السلسلة الخلفية والأرداف", "Quads / core": "الفخذ الأمامي والبطن", "Quads / glutes / cardio": "الفخذ الأمامي والأرداف والكارديو", "Shoulders / cardio": "الكتفين والكارديو", "Triceps / chest": "الترايسبس والصدر", "Glutes (maximus)": "الأرداف (العضلة الكبرى)", "Biceps / brachialis": "البايسبس والعضلة العضدية", "Side delt": "الكتف الجانبي", "Glutes (maximus-biased)": "الأرداف (تركيز على العضلة الكبرى)", "Back (mid-traps, rhomboids, lats)": "الظهر (منتصف الترابيس، المعينية، الظهرية)", "Upper traps": "الترابيس العلوية", "Obliques": "عضلات البطن الجانبية (المائلة)", "Abs (front)": "عضلات البطن الأمامية", "Hamstrings / glutes / erectors": "الفخذ الخلفي والأرداف وعضلات أسفل الظهر", "Calves (soleus)": "السمانة (النعلية)", "Calves (gastrocnemius)": "السمانة (التوأمية)", "Back (lats) / biceps": "الظهر (العضلة الظهرية) والبايسبس"};
 // Shows "Arabic (English original)" so exercises stay searchable on
 // YouTube/Google in the term most fitness content actually uses, per
 // Spirito's choice to keep both rather than Arabic-only.
@@ -742,6 +750,48 @@ function LibraryPickerSheet({ onPick, onCancel }) {
 // name+image are always seen together, per the request), a "browse
 // everything else" escape hatch for the other 130+, and a manual/custom
 // fallback for anything not in the library at all.
+// Review screen for pendingLibraryUpdates — one row per exercise whose
+// shared-library numbers no longer match what's stored in this plan,
+// each with its own accept ("تحديث") or keep-mine ("الإبقاء عليه")
+// choice, plus the two bulk actions for when there are several at once.
+function LibraryUpdatesModal({ rows, onApply, onDismiss, onApplyAll, onDismissAll, onClose }) {
+  return (
+    <div className="fixed inset-0 z-[58] flex items-end sm:items-center justify-center bg-black/60 backdrop-blur-[2px]" onClick={onClose}>
+      <div className={sheetClass} onClick={(e) => e.stopPropagation()}>
+        <div className="sticky top-0 bg-card px-5 py-4 border-b border-line z-10">
+          <div className="flex items-center justify-between mb-1">
+            <h2 className="text-xl font-black text-ink font-display">تحديثات من المكتبة</h2>
+            <button onClick={onClose} className="p-2 -mr-2 rounded-full text-ink-faint hover:bg-mist"><X className="w-5 h-5" /></button>
+          </div>
+          <p className="text-xs text-ink-faint">تمارين لم تعدّلها بنفسك، وتغيّرت أرقامها في المصدر المشترك. اختر لكل واحد، أو طبّق/تجاهل الكل.</p>
+          {rows.length > 1 && (
+            <div className="flex gap-2 mt-3">
+              <button onClick={onApplyAll} className="flex-1 py-2 rounded-xl text-xs font-bold bg-charge text-paper">تطبيق الكل</button>
+              <button onClick={onDismissAll} className="flex-1 py-2 rounded-xl text-xs font-bold text-ink-faint border border-line">الإبقاء على الكل</button>
+            </div>
+          )}
+        </div>
+        <div className="p-4 space-y-3 max-h-[65vh] overflow-y-auto">
+          {rows.map((r) => (
+            <div key={r.dayId + r.exId} className="rounded-2xl bg-mist p-3.5">
+              <p className="font-bold text-sm text-ink mb-2">{exLabel(r.name)}</p>
+              <div className="flex items-center gap-2 text-xs font-mono mb-3">
+                <span className="text-ink-faint line-through">{r.oldVals.sets}×{r.oldVals.reps} · {wLabel(r.oldVals.weight)} · {r.oldVals.rest}</span>
+                <ChevronRight className="w-3.5 h-3.5 text-ink-faint rotate-180 shrink-0" />
+                <span className="text-charge-strong font-bold">{r.newVals.sets}×{r.newVals.reps} · {wLabel(r.newVals.weight)} · {r.newVals.rest}</span>
+              </div>
+              <div className="flex gap-2">
+                <button onClick={() => onApply(r)} className="flex-1 py-2 rounded-xl text-xs font-bold bg-charge text-paper">تحديث</button>
+                <button onClick={() => onDismiss(r)} className="flex-1 py-2 rounded-xl text-xs font-bold text-ink-faint border border-line">الإبقاء عليه</button>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function AddExerciseChooser({ onPick, onBrowseAll, onCustom, onCancel }) {
   const common = COMMON_EXERCISE_NAMES.map((n) => findLibraryMatch(n)).filter(Boolean);
   return (
@@ -809,7 +859,16 @@ function ExerciseModal({ initial, onCancel, onSave, title, isAdminUser, currentU
   const divergesFromLibrary = isOwner && match && (
     form.muscle !== match.muscle || Number(form.sets) !== match.sets || form.reps !== match.reps || form.weight !== match.weight || form.rest !== match.rest || (form.image || null) !== (match.image || null)
   );
-  const finalize = () => onSave({ ...form, sets: Number(form.sets) || 1, libraryId: match ? slugify(match.name) : null });
+  // Whether sets/reps/weight/rest were changed away from the library's
+  // current numbers this save — used to decide whether a non-owner's edit
+  // should freeze (`customized`) so it never gets silently touched again.
+  const numbersChanged = !!match && (Number(form.sets) !== match.sets || form.reps !== match.reps || form.weight !== match.weight || form.rest !== match.rest);
+  const finalize = (customizedOverride) => {
+    const nextCustomized = customizedOverride !== undefined ? customizedOverride : (
+      match && !isOwner ? (numbersChanged || !!initial.customized) : !!initial.customized
+    );
+    onSave({ ...form, sets: Number(form.sets) || 1, libraryId: match ? slugify(match.name) : null, customized: nextCustomized });
+  };
   const attemptSave = async () => {
     if (!canSave) return;
     if (!match && addToLibrary && canSubmitLibrary) {
@@ -840,18 +899,24 @@ function ExerciseModal({ initial, onCancel, onSave, title, isAdminUser, currentU
       setLibraryBusy(false);
     }
     setAskLibrary(false);
-    finalize();
+    finalize(!pushToLibrary);
   };
 
   if (askLibrary) {
     return (
       <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/60 backdrop-blur-[2px] px-6">
         <div className="bg-card rounded-2xl p-5 max-w-xs w-full">
-          <p className="font-bold text-ink text-sm mb-1">تحديث المكتبة القياسية أيضاً؟</p>
-          <p className="text-xs text-ink-faint mb-4">غيّرت بيانات "{match.name}" عن القيم القياسية. حدّث المكتبة ليأخذ كل اختيار مستقبلي لهذا التمرين قيمك الجديدة، أو اتركها فقط في هذا التمرين.</p>
+          <p className="font-bold text-ink text-sm mb-1">تحديث المصدر العام أم لهذه الخطة فقط؟</p>
+          <p className="text-xs text-ink-faint mb-4">غيّرت بيانات "{match.name}" عن القيم القياسية. اختر أحد الوضعين:</p>
           <div className="flex flex-col gap-2">
-            <button disabled={libraryBusy} onClick={() => saveWithLibraryChoice(true)} className="w-full py-2.5 rounded-xl text-sm font-bold bg-charge text-paper disabled:opacity-50">{libraryBusy ? "جارٍ التحديث…" : "تحديث المكتبة"}</button>
-            <button disabled={libraryBusy} onClick={() => saveWithLibraryChoice(false)} className="w-full py-2.5 rounded-xl text-sm font-bold text-ink-faint border border-line">هنا فقط، ليس المكتبة</button>
+            <button disabled={libraryBusy} onClick={() => saveWithLibraryChoice(true)} className="w-full py-2.5 rounded-xl text-sm font-bold bg-charge text-paper disabled:opacity-50 text-right">
+              {libraryBusy ? "جارٍ التحديث…" : "تحديث المصدر للجميع"}
+              <span className="block text-[11px] font-normal opacity-80 mt-0.5">كل خطة تستخدم هذا التمرين تُحدَّث تلقائياً — إلا من عدّل تفاصيله بنفسه مسبقاً، هؤلاء سيُسألون أولاً قبل أي تغيير.</span>
+            </button>
+            <button disabled={libraryBusy} onClick={() => saveWithLibraryChoice(false)} className="w-full py-2.5 rounded-xl text-sm font-bold text-ink-faint border border-line text-right">
+              لنفسي فقط
+              <span className="block text-[11px] font-normal opacity-70 mt-0.5">يبقى المصدر العام كما هو، هذا التغيير في خطتك أنت فقط.</span>
+            </button>
           </div>
         </div>
       </div>
@@ -2407,6 +2472,7 @@ const EXERCISE_LIBRARY = [
   { name: "Dumbbell kickback", muscle: "Triceps", sets: 3, reps: "12-15", weight: "Light", rest: "45 sec", image: "./exercise-images/tricep-kickback.webp", youtubeId: null },
   { name: "JM press", muscle: "Triceps", sets: 3, reps: "8-10", weight: "Medium-Heavy", rest: "90 sec", image: null, youtubeId: null },
   { name: "Wrist curl", muscle: "Forearms", sets: 3, reps: "12-15", weight: "Light-Medium", rest: "45 sec", image: "./exercise-images/barbell-wrist-curl.webp", youtubeId: null },
+  { name: "Pallof press", muscle: "Obliques", sets: 3, reps: "10-12/side", weight: "Medium", rest: "60 sec", image: "./exercise-images/cable-pallof-press.webp", youtubeId: null },
   { name: "Reverse wrist curl", muscle: "Forearms", sets: 3, reps: "12-15", weight: "Light-Medium", rest: "45 sec", image: "./exercise-images/db-reverse-wrist-curl.webp", youtubeId: null },
   { name: "Plate pinch hold", muscle: "Forearms / grip", sets: 3, reps: "20-30 sec", weight: "Medium", rest: "60 sec", image: "./exercise-images/plate-pinch.webp", youtubeId: null },
   { name: "Dead hang", muscle: "Forearms / grip", sets: 3, reps: "30-45 sec", weight: "Light", rest: "60 sec", image: "./exercise-images/dead-hang.webp", youtubeId: null },
@@ -2550,12 +2616,56 @@ function findLibraryById(id) {
 // photo. `libraryId` (set when an exercise is added via the library
 // picker) survives the admin later renaming the entry; older exercises
 // that predate `libraryId` still get matched live by exact name text.
+// The single-source-of-truth read path for NAME / MUSCLE / PHOTO / VIDEO —
+// every card and the workout session both go through this (see below) so
+// they can never show different things for the same exercise. Numbers
+// (sets/reps/weight/rest) deliberately do NOT flow through here — those
+// only ever change through the explicit review-and-accept flow
+// (pendingLibraryUpdates + the update banner), never silently, since a
+// shifting rep target mid-program is disruptive in a way a fixed typo or
+// photo never is.
 function resolveLive(ex) {
   const m = findLibraryById(ex.libraryId) || findLibraryMatch(ex.name);
   if (!m) return { name: ex.name, muscle: ex.muscle, image: ex.image, youtubeId: ex.videoId, match: null };
-  return { name: m.name, muscle: m.muscle, image: m.image || ex.image, youtubeId: m.youtubeId || ex.videoId, match: m };
+  // If the exercise's own name text no longer matches the library's
+  // current name, someone wrote something specific here on purpose
+  // (an injury note, a grip variant, a personal rename) — never clobber
+  // that, even though the photo/video still come from the live entry.
+  const nameCustomized = ex.name !== m.name;
+  return {
+    name: nameCustomized ? ex.name : m.name,
+    muscle: nameCustomized ? ex.muscle : m.muscle,
+    image: ex.image || m.image, // an existing photo is never replaced — only a missing one gets filled in
+    youtubeId: ex.videoId || m.youtubeId,
+    match: m,
+  };
+}
+// Numbers a non-customized exercise's library entry currently disagrees
+// with — surfaced as a reviewable, opt-in update rather than applied
+// automatically. Returns one row per exercise that actually differs.
+function pendingLibraryUpdates(plan) {
+  if (!plan) return [];
+  const rows = [];
+  for (const day of plan.days) {
+    for (const item of day.exercises) {
+      if (item.customized) continue;
+      const m = findLibraryById(item.libraryId) || findLibraryMatch(item.name);
+      if (!m) continue;
+      if (item.sets === m.sets && item.reps === m.reps && item.weight === m.weight && item.rest === m.rest) continue;
+      rows.push({
+        dayId: day.id, exId: item.id, name: item.name,
+        oldVals: { sets: item.sets, reps: item.reps, weight: item.weight, rest: item.rest },
+        newVals: { sets: m.sets, reps: m.reps, weight: m.weight, rest: m.rest },
+      });
+    }
+  }
+  return rows;
 }
 function youtubeEmbedUrl(id) { return `https://www.youtube-nocookie.com/embed/${id}`; }
+// 100ms of silence, looped — see the Media Session effect in
+// WorkoutSession for why a muted audio element needs to actually be
+// "playing" at all.
+const SILENT_LOOP_WAV = "data:audio/wav;base64,UklGRkQDAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YSADAACAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgA==";
 
 // Small "official" vs "submitted by X" pill — shown wherever a library
 // entry is visible, so it's always clear whose exercise this is.
@@ -2591,6 +2701,28 @@ function parseRestSeconds(restStr) {
   if (!m) return 60;
   const val = m[2] ? (parseFloat(m[1]) + parseFloat(m[2])) / 2 : parseFloat(m[1]);
   return Math.round(m[3].toLowerCase().startsWith("min") ? val * 60 : val);
+}
+
+// A draining circular ring around a countdown — the standard fitness-app
+// pattern for "how much time is left" at a glance, instead of only digits
+// someone has to actually read. `progress` is 0 (empty/done) to 1 (full).
+function CountdownRing({ progress, size = 240, stroke = 8, color, trackColor = "rgba(255,255,255,0.10)", children }) {
+  const r = (size - stroke) / 2;
+  const c = 2 * Math.PI * r;
+  const clamped = Math.max(0, Math.min(1, progress));
+  return (
+    <div className="relative shrink-0" style={{ width: size, height: size }}>
+      <svg width={size} height={size} className="absolute inset-0" style={{ transform: "rotate(-90deg)" }}>
+        <circle cx={size / 2} cy={size / 2} r={r} fill="none" stroke={trackColor} strokeWidth={stroke} />
+        <circle
+          cx={size / 2} cy={size / 2} r={r} fill="none" stroke={color} strokeWidth={stroke} strokeLinecap="round"
+          strokeDasharray={c} strokeDashoffset={c * (1 - clamped)}
+          style={{ transition: "stroke-dashoffset 0.22s linear" }}
+        />
+      </svg>
+      <div className="absolute inset-0 flex flex-col items-center justify-center">{children}</div>
+    </div>
+  );
 }
 
 function SessionStyles() {
@@ -2643,39 +2775,117 @@ function WorkoutSession({ day, onExit }) {
   }, { phase: "warmupChoice", exIndex: 0, setsDone: 0 });
   const { phase, exIndex, setsDone } = run;
 
-  const [warmupLeft, setWarmupLeft] = useState(WARMUP_SECONDS);
-  const [restLeft, setRestLeft] = useState(0);
+  // ---- timers ----
+  // Deliberately NOT plain decrement-every-second counters. A locked or
+  // backgrounded phone throttles/suspends setInterval — a counter that
+  // just decrements would drift or freeze during that time and then be
+  // wrong once the screen comes back. Instead every timer here is a
+  // fixed end timestamp, and the single shared tick just recomputes
+  // "how long until that timestamp" each time it fires — so however long
+  // the tab was suspended, the moment it resumes the numbers are exactly
+  // correct again, self-correcting rather than accumulated drift.
+  const [nowTick, setNowTick] = useState(Date.now());
+  useEffect(() => { const t = setInterval(() => setNowTick(Date.now()), 250); return () => clearInterval(t); }, []);
+  const [warmupEndsAt, setWarmupEndsAt] = useState(null);
+  const [restEndsAt, setRestEndsAt] = useState(null);
+  const restTotalRef = useRef(60);
+  const warmupLeft = warmupEndsAt ? Math.max(0, Math.ceil((warmupEndsAt - nowTick) / 1000)) : WARMUP_SECONDS;
+  const restLeft = restEndsAt ? Math.max(0, Math.ceil((restEndsAt - nowTick) / 1000)) : 0;
   const [popKey, setPopKey] = useState(0);
   const [confirmExit, setConfirmExit] = useState(false);
   const [muted, setMuted] = useState(false);
   const [startedAt] = useState(Date.now());
-  const [elapsed, setElapsed] = useState(0);
+  const elapsed = Math.floor((nowTick - startedAt) / 1000);
   const [toast, setToast] = useState(null);
-  const restTotal = useRef(60);
   const toastTimer = useRef(null);
+  const warmupSoundFired = useRef(false);
+  const restSoundFired = useRef(false);
 
   useEffect(() => { (async () => { try { const r = await window.storage.get("training-log-sound-v1", false); if (r?.value) setMuted(JSON.parse(r.value) === false); } catch (err) { /* ignore */ } })(); }, []);
   const toggleMuted = () => { const next = !muted; setMuted(next); window.storage.set("training-log-sound-v1", JSON.stringify(!next), false).catch(() => {}); };
   const play = (fn) => { if (!muted) fn(); };
 
-  useEffect(() => { const t = setInterval(() => setElapsed(Math.floor((Date.now() - startedAt) / 1000)), 1000); return () => clearInterval(t); }, [startedAt]);
+  // Keeps the screen from locking/dimming for the whole session — the
+  // #1 complaint this fixes: a locked screen fully suspends the page on
+  // mobile browsers, which is why the rest timer used to just stop dead.
+  // Re-acquires automatically if the OS still takes the lock away for its
+  // own reasons (some browsers drop it when a tab is backgrounded) and the
+  // person comes back to the tab. Not supported everywhere (notably iOS
+  // Safari, including as an installed PWA, has no Wake Lock API at all as
+  // of this writing) — where it isn't, this just silently does nothing;
+  // there's no fallback that can force a screen to stay on from a webpage.
+  useEffect(() => {
+    if (!("wakeLock" in navigator)) return;
+    let sentinel = null;
+    let cancelled = false;
+    const acquire = async () => {
+      try { sentinel = await navigator.wakeLock.request("screen"); } catch (err) { /* denied, unsupported right now, or low battery — nothing more we can do */ }
+    };
+    acquire();
+    const onVis = () => { if (!cancelled && document.visibilityState === "visible" && !sentinel) acquire(); };
+    document.addEventListener("visibilitychange", onVis);
+    return () => { cancelled = true; document.removeEventListener("visibilitychange", onVis); sentinel?.release().catch(() => {}); };
+  }, []);
+
+  // Media Session + a silent looping audio element = the lock-screen
+  // "now playing" card (title, artist, play/pause) shows what's happening
+  // in the session, the same trick a podcast app uses. Requires something
+  // to actually be "playing" for the OS to grant lock-screen media
+  // controls at all — a real audio element muted to 0 volume satisfies
+  // that without anyone hearing anything. Best support is Android Chrome;
+  // iOS Safari's lock screen does not surface PWA media sessions the same
+  // way, so there this silently has no visible effect.
+  useEffect(() => {
+    if (typeof Audio === "undefined") return;
+    const el = new Audio(SILENT_LOOP_WAV);
+    el.loop = true; el.volume = 0;
+    el.play().catch(() => {}); // may need a user gesture first on some browsers — the big tap buttons on this screen provide one
+    return () => { el.pause(); };
+  }, []);
+  useEffect(() => {
+    if (!("mediaSession" in navigator)) return;
+    const label =
+      phase === "warmup" ? `إحماء — ${fmtClock(warmupLeft)} متبقية`
+      : phase === "rest" ? `راحة — ${fmtClock(restLeft)} متبقية`
+      : phase === "work" && currentEx ? `مجموعة ${setsDone + 1} من ${currentEx.sets}`
+      : phase === "stretch" ? "تهدئة"
+      : "تمرين";
+    try {
+      navigator.mediaSession.metadata = new MediaMetadata({
+        title: currentEx ? exLabel(currentEx.name) : day.title,
+        artist: label,
+        album: "Training Log",
+      });
+      navigator.mediaSession.playbackState = "playing";
+      navigator.mediaSession.setActionHandler("pause", () => {}); // no-op — keeps the OS from treating this as a normal pausable track
+      navigator.mediaSession.setActionHandler("play", () => {});
+    } catch (err) { /* MediaMetadata unsupported in this browser — nothing more to do */ }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [phase, exIndex, setsDone, Math.floor(warmupLeft / 5), Math.floor(restLeft / 5)]);
 
   useEffect(() => {
-    if (phase !== "warmup" || warmupLeft <= 0) return;
-    const t = setInterval(() => setWarmupLeft((s) => { if (s <= 1 && !muted) SOUND.restEnd(); return s - 1; }), 1000);
-    return () => clearInterval(t);
+    if (phase !== "warmup") return;
+    setWarmupEndsAt(Date.now() + WARMUP_SECONDS * 1000);
+  }, [phase]);
+  useEffect(() => {
+    if (phase !== "warmup") { warmupSoundFired.current = false; return; }
+    if (warmupLeft <= 0 && !warmupSoundFired.current) { warmupSoundFired.current = true; play(SOUND.restEnd); }
   }, [phase, warmupLeft, muted]);
 
   useEffect(() => {
-    if (phase !== "rest" || restLeft <= 0) return;
-    const t = setInterval(() => setRestLeft((s) => { if (s <= 1) play(SOUND.restEnd); return s - 1; }), 1000);
-    return () => clearInterval(t);
-  }, [phase, restLeft]);
+    if (phase !== "rest") { restSoundFired.current = false; return; }
+    if (restLeft <= 0 && !restSoundFired.current) { restSoundFired.current = true; play(SOUND.restEnd); dispatch({ type: "REST_DONE" }); }
+  }, [phase, restLeft, muted]);
 
   useEffect(() => () => clearTimeout(toastTimer.current), []);
 
   const exercises = day.exercises;
-  const currentEx = exercises[exIndex];
+  const rawEx = exercises[exIndex];
+  // Same read path the plan view and every exercise card use (see
+  // resolveLive) — name/photo/muscle always match what's outside this
+  // screen; sets/reps/weight/rest stay exactly what's stored on the
+  // exercise (never silently swapped for a library default mid-workout).
+  const currentEx = rawEx ? { ...rawEx, ...resolveLive(rawEx) } : null;
   const totalExercises = exercises.length;
 
   const completeWarmup = () => { play(SOUND.exerciseDone); dispatch({ type: "WARMUP_DONE" }); };
@@ -2688,8 +2898,9 @@ function WorkoutSession({ day, onExit }) {
     const willFinishExercise = setsDone + 1 >= currentEx.sets;
     const isLastExercise = exIndex >= totalExercises - 1;
     if (!willFinishExercise) {
-      restTotal.current = parseRestSeconds(currentEx.rest);
-      setRestLeft(restTotal.current);
+      const secs = parseRestSeconds(currentEx.rest);
+      restTotalRef.current = secs;
+      setRestEndsAt(Date.now() + secs * 1000);
     } else {
       play(SOUND.exerciseDone);
       if (isLastExercise) {
@@ -2703,14 +2914,14 @@ function WorkoutSession({ day, onExit }) {
         // distinct restBetweenExercises per exercise; otherwise this just
         // reuses the same rest value as between sets, which is a
         // reasonable default rather than forcing every plan to define it
-        restTotal.current = parseRestSeconds(currentEx.restBetweenExercises || currentEx.rest);
-        setRestLeft(restTotal.current);
+        const secs = parseRestSeconds(currentEx.restBetweenExercises || currentEx.rest);
+        restTotalRef.current = secs;
+        setRestEndsAt(Date.now() + secs * 1000);
       }
     }
     dispatch({ type: "COMPLETE_SET", totalSets: currentEx.sets, totalExercises });
   };
   const skipRest = () => dispatch({ type: "REST_DONE" });
-  useEffect(() => { if (phase === "rest" && restLeft <= 0) dispatch({ type: "REST_DONE" }); }, [phase, restLeft]);
 
   const finishStretch = () => { play(SOUND.workoutDone); dispatch({ type: "FINISH_STRETCH" }); };
 
@@ -2772,14 +2983,17 @@ function WorkoutSession({ day, onExit }) {
 
           {phase === "warmup" && (
             <>
-              <p className="text-ink/60 text-sm mb-2">الإحماء قبل بدء اليوم — هذه الخطوة إلزامية.</p>
-              <div className="text-[clamp(3rem,11vw,5rem)] font-black font-mono mb-4 tabular-nums">{fmtClock(warmupLeft)}</div>
+              <p className="text-ink/60 text-sm mb-4">الإحماء قبل بدء اليوم — هذه الخطوة إلزامية.</p>
+              <CountdownRing progress={warmupLeft / WARMUP_SECONDS} size={220} color={accent.hex}>
+                <Flame className={`w-6 h-6 mb-1 transition-opacity ${warmupLeft > 0 ? "opacity-40" : "opacity-0"}`} />
+                <span className="text-[clamp(2.5rem,9vw,3.5rem)] font-black font-mono tabular-nums leading-none">{fmtClock(warmupLeft)}</span>
+              </CountdownRing>
               <button
                 disabled={warmupLeft > 0}
                 onClick={completeWarmup}
-                className={`px-6 py-3.5 rounded-2xl text-base font-black transition-all relative ${warmupLeft > 0 ? "bg-ink/10 text-ink/40" : "bg-ink text-paper tl-ring"}`}
+                className={`mt-6 px-6 py-3.5 rounded-2xl text-base font-black transition-all relative ${warmupLeft > 0 ? "bg-ink/10 text-ink/40" : "bg-ink text-paper tl-ring"}`}
               >
-                {warmupLeft > 0 ? `جارٍ الإحماء… ${fmtClock(warmupLeft)} متبقية` : "✓ انتهى الإحماء — ابدأ اليوم"}
+                {warmupLeft > 0 ? "جارٍ الإحماء…" : "✓ انتهى الإحماء — ابدأ اليوم"}
               </button>
             </>
           )}
@@ -2793,6 +3007,9 @@ function WorkoutSession({ day, onExit }) {
               <h2 className="text-[clamp(1.5rem,5.5vw,2.25rem)] font-black font-display leading-tight mb-1 text-center">{exLabel(currentEx.name)}</h2>
               <p className="text-ink/50 text-base mb-2">{muscleLabel(currentEx.muscle)}</p>
               <p className="text-ink/70 text-base font-mono mb-6 flex items-center gap-2">{currentEx.reps} تكرار · <PlateBadge weight={currentEx.weight} size="lg" /></p>
+              {setsDone === currentEx.sets - 1 && exIndex < totalExercises - 1 && (
+                <p className="text-ink/35 text-xs font-bold mb-4 -mt-3">التالي: {exLabel(exercises[exIndex + 1].name)}</p>
+              )}
 
               <div className="flex gap-2 mb-6 flex-wrap justify-center max-w-xs">
                 {Array.from({ length: currentEx.sets }).map((_, i) => (
@@ -2816,21 +3033,13 @@ function WorkoutSession({ day, onExit }) {
 
           {phase === "rest" && currentEx && (
             <div key={`rest-${exIndex}-${setsDone}`} className="tl-fade-in w-full flex flex-col items-center">
-              {setsDone === 0 ? (
-                <>
-                  <p className="text-ink/50 text-sm mb-2">راحة قبل التمرين التالي</p>
-                  <div className={`text-[clamp(3rem,11vw,5rem)] font-black font-mono mb-4 tabular-nums ${accent.text}`}>{fmtClock(restLeft)}</div>
-                  <p className="text-ink font-bold text-base mb-1">{exLabel(currentEx.name)}</p>
-                  <p className="text-ink/40 text-sm mb-6">{muscleLabel(currentEx.muscle)}</p>
-                </>
-              ) : (
-                <>
-                  <p className="text-ink/50 text-sm mb-2">راحة قبل المجموعة {setsDone + 1}</p>
-                  <div className={`text-[clamp(3rem,11vw,5rem)] font-black font-mono mb-4 tabular-nums ${accent.text}`}>{fmtClock(restLeft)}</div>
-                  <p className="text-ink/40 text-sm mb-6">{exLabel(currentEx.name)}</p>
-                </>
-              )}
-              <button onClick={skipRest} className="px-6 py-2.5 rounded-xl text-sm font-bold text-ink/60 border border-ink/20 hover:bg-ink/10 transition-colors">تخطي الراحة</button>
+              <p className="text-ink/50 text-sm mb-4">{setsDone === 0 ? "راحة قبل التمرين التالي" : `راحة قبل المجموعة ${setsDone + 1}`}</p>
+              <CountdownRing progress={restLeft / (restTotalRef.current || 1)} size={220} color={accent.hex}>
+                <span className={`text-[clamp(2.5rem,9vw,3.5rem)] font-black font-mono tabular-nums leading-none ${accent.text}`}>{fmtClock(restLeft)}</span>
+              </CountdownRing>
+              <p className="text-ink font-bold text-base mt-5 mb-1">{exLabel(currentEx.name)}</p>
+              {setsDone === 0 && <p className="text-ink/40 text-sm mb-2">{muscleLabel(currentEx.muscle)}</p>}
+              <button onClick={skipRest} className="mt-4 px-6 py-2.5 rounded-xl text-sm font-bold text-ink/60 border border-ink/20 hover:bg-ink/10 transition-colors">تخطي الراحة</button>
             </div>
           )}
 
@@ -2943,6 +3152,8 @@ function usePwaInstall() {
 
 export default function TrainingLog() {
   const [plans, setPlans] = useState([]);
+  const [libraryVersion, setLibraryVersion] = useState(0);
+  const [updateAvailable, setUpdateAvailable] = useState(false);
   const [activePlanId, setActivePlanId] = useState(null);
   const [activeDay, setActiveDay] = useState(null);
   const pageFromUrl = () => {
@@ -2964,6 +3175,7 @@ export default function TrainingLog() {
   const [sessionOpen, setSessionOpen] = useState(false);
   const [modal, setModal] = useState(null);
   const [addChooserOpen, setAddChooserOpen] = useState(false);
+  const [libraryUpdatesOpen, setLibraryUpdatesOpen] = useState(false);
   const [newPlanOpen, setNewPlanOpen] = useState(false);
   const [manageDaysOpen, setManageDaysOpen] = useState(false);
   const [syncOpen, setSyncOpen] = useState(false);
@@ -2992,12 +3204,33 @@ export default function TrainingLog() {
   const [tutorialPreviewOpen, setTutorialPreviewOpen] = useState(false);
   const fileInputRef = useRef(null);
   const pushTimer = useRef(null);
+  const pendingCloudSave = useRef(null);
   const pwa = usePwaInstall();
 
   useEffect(() => {
-    if ("serviceWorker" in navigator) {
-      navigator.serviceWorker.register("./sw.js").catch(() => { /* fine — app still works without offline caching */ });
-    }
+    if (!("serviceWorker" in navigator)) return;
+    // The SW itself updates in the background automatically (skipWaiting
+    // in sw.js) — the actual problem "how do I get an update to people who
+    // already have this open/installed" is that the PAGE they're looking
+    // at keeps running the OLD JavaScript until it's reloaded. This wires
+    // up the standard pattern for that: detect a new SW taking control,
+    // then prompt (never force) a reload. Applies the same way whether
+    // someone's in the browser or in the wrapped Android APK, since both
+    // load the same web app through this same service worker — there's no
+    // way to silently force either one to update without the person's
+    // page (or app) actually reloading at some point.
+    navigator.serviceWorker.register("./sw.js").catch(() => { /* fine — app still works without offline caching */ });
+    let refreshing = false;
+    navigator.serviceWorker.addEventListener("controllerchange", () => {
+      if (refreshing) return;
+      refreshing = true;
+      setUpdateAvailable(true);
+    });
+    const checkForUpdate = () => navigator.serviceWorker.getRegistration().then((reg) => reg?.update()).catch(() => {});
+    checkForUpdate();
+    const onFocus = () => checkForUpdate();
+    window.addEventListener("focus", onFocus);
+    return () => window.removeEventListener("focus", onFocus);
   }, []);
 
   useEffect(() => {
@@ -3025,7 +3258,7 @@ export default function TrainingLog() {
       } catch (err) { /* first run */ }
       if (localPlans) { setPlans(localPlans); const aid = localActiveId || localPlans[0].id; setActivePlanId(aid); setActiveDay(localPlans.find((p) => p.id === aid)?.days[0]?.id); }
       try { const ob = await window.storage.get(ONBOARD_KEY, false); setOnboardStep(ob?.value ? "done" : "language"); } catch (err) { setOnboardStep("language"); }
-      try { mergeRemoteLibrary(await fetchExerciseLibrary()); } catch (err) { /* offline or none yet — the hardcoded seed still works fine */ }
+      try { mergeRemoteLibrary(await fetchExerciseLibrary()); setLibraryVersion((v) => v + 1); } catch (err) { /* offline or none yet — the hardcoded seed still works fine */ }
       try { const t = await window.storage.get(THEME_KEY, false); if (t?.value && THEMES.some((th) => th.id === t.value)) { setTheme(t.value); applyTheme(t.value); } } catch (err) { /* default theme */ }
       try { const s = await window.storage.get(TEXT_SIZE_KEY, false); if (s?.value) { setTextSize(s.value); applyTextSize(s.value); } } catch (err) { /* default size */ }
       try { const b = await window.storage.get(TEXT_BOLD_KEY, false); if (b?.value) { setTextBold(true); applyTextBold(true); } } catch (err) { /* default weight */ }
@@ -3067,10 +3300,55 @@ export default function TrainingLog() {
   const persist = useCallback((nextPlans, nextActiveId) => {
     (async () => { try { const res = await window.storage.set(STORAGE_KEY, JSON.stringify({ plans: nextPlans, activePlanId: nextActiveId }), false); setSaveError(!res); } catch (err) { setSaveError(true); } })();
     if (firebaseUser) {
+      const data = { plans: nextPlans, activePlanId: nextActiveId };
+      pendingCloudSave.current = { uid: firebaseUser.uid, name: authorName, data };
       clearTimeout(pushTimer.current);
-      pushTimer.current = setTimeout(() => { saveUserData(firebaseUser.uid, authorName, { plans: nextPlans, activePlanId: nextActiveId }).catch(() => setSyncError(true)); }, 1200);
+      pushTimer.current = setTimeout(() => {
+        const p = pendingCloudSave.current; pendingCloudSave.current = null;
+        if (p) saveUserData(p.uid, p.name, p.data).catch(() => setSyncError(true));
+      }, 1200);
     }
-  }, [firebaseUser]);
+  }, [firebaseUser, authorName]);
+
+  // The debounce above exists so rapid edits (dragging a number, typing a
+  // name) don't fire a Firestore write per keystroke — but it means a save
+  // can still be sitting in that 1.2s window when the tab is closed or the
+  // phone locks, and a debounced setTimeout never fires once the page is
+  // gone. That's the "I edited something, refreshed, and it was back to
+  // the old version" bug: the edit only ever made it to on-device storage,
+  // never to the account it re-loads from on the next launch. Flushing
+  // immediately on the OS backgrounding/hiding the tab (far more reliable
+  // on mobile than the "beforeunload" event, which many mobile browsers
+  // don't fire at all) closes that window.
+  useEffect(() => {
+    const flush = () => {
+      const p = pendingCloudSave.current;
+      if (!p) return;
+      clearTimeout(pushTimer.current);
+      pendingCloudSave.current = null;
+      saveUserData(p.uid, p.name, p.data).catch(() => {}); // best-effort — the page may be closing before this resolves either way
+    };
+    const onVis = () => { if (document.hidden) flush(); };
+    document.addEventListener("visibilitychange", onVis);
+    window.addEventListener("pagehide", flush);
+    return () => { document.removeEventListener("visibilitychange", onVis); window.removeEventListener("pagehide", flush); };
+  }, []);
+
+  // Refresh the shared exercise library on tab focus too — an admin's
+  // catalog import/edit in another tab or session otherwise wouldn't show
+  // up here until a full reload, which is the other half of "I had to
+  // refresh to see a change" reports.
+  useEffect(() => {
+    let busy = false;
+    const onFocus = async () => {
+      if (busy || !loaded) return;
+      busy = true;
+      try { mergeRemoteLibrary(await fetchExerciseLibrary()); setLibraryVersion((v) => v + 1); } catch (err) { /* offline — stale is fine, next focus retries */ }
+      busy = false;
+    };
+    window.addEventListener("focus", onFocus);
+    return () => window.removeEventListener("focus", onFocus);
+  }, [loaded]);
 
   useEffect(() => { if (loaded && activePlanId) persist(plans, activePlanId); }, [plans, activePlanId, loaded, persist]);
 
@@ -3088,6 +3366,20 @@ export default function TrainingLog() {
   const deleteExercise = (id) => { updatePlanDays((days) => days.map((d) => (d.id !== activeDay ? d : { ...d, exercises: d.exercises.filter((e) => e.id !== id) }))); setConfirmDelete(null); };
   const addExercise = (form) => { const newEx = { ...form, id: `${activeDay}-${Date.now()}` }; updatePlanDays((days) => days.map((d) => (d.id !== activeDay ? d : { ...d, exercises: [...d.exercises, newEx] }))); setModal(null); };
   const saveDays = (newDays) => { setPlans((prev) => prev.map((p) => (p.id !== plan.id ? p : { ...p, days: newDays }))); setManageDaysOpen(false); if (!newDays.find((d) => d.id === activeDay)) setActiveDay(newDays[0].id); };
+
+  // Reviewable library updates — see pendingLibraryUpdates/resolveLive.
+  // Unlike updateExercise above these can touch ANY day in the plan, not
+  // just the currently open one, since the banner surfaces changes for
+  // the whole plan at once.
+  const patchExerciseInDay = (dayId, exId, patch) => setPlans((prev) => prev.map((p) => (p.id !== plan.id ? p : {
+    ...p, days: p.days.map((d) => (d.id !== dayId ? d : { ...d, exercises: d.exercises.map((e) => (e.id !== exId ? e : { ...e, ...patch })) })),
+  })));
+  const applyLibraryUpdate = (dayId, exId, newVals) => patchExerciseInDay(dayId, exId, { ...newVals, customized: false });
+  const dismissLibraryUpdate = (dayId, exId) => patchExerciseInDay(dayId, exId, { customized: true });
+  // Recomputed fresh every render (cheap — a few dozen exercises at most);
+  // libraryVersion bumping just forces that re-render when the library
+  // changed in the background (see the focus-refresh effect above).
+  const pending = pendingLibraryUpdates(plan);
 
   const createPlan = (name, levelId) => {
     const p = makePlan(name, levelId, authorName || "أنت");
@@ -3236,6 +3528,14 @@ export default function TrainingLog() {
   return (
     <ContentContext.Provider value={siteContent}>
     <div className="w-full min-h-dvh bg-paper text-ink overflow-x-hidden pb-24">
+      {updateAvailable && (
+        <div className="sticky top-0 z-40 bg-charge text-paper px-4 py-2.5 flex items-center justify-center gap-3 text-sm font-bold">
+          <Sparkles className="w-4 h-4 shrink-0" />
+          <span>نسخة جديدة من التطبيق متاحة</span>
+          <button onClick={() => window.location.reload()} className="underline underline-offset-2 shrink-0">تحديث الآن</button>
+          <button onClick={() => setUpdateAvailable(false)} className="p-1 -mr-1 shrink-0" aria-label="إغلاق"><X className="w-4 h-4" /></button>
+        </div>
+      )}
       <header className="sticky top-0 z-30 bg-paper/95 backdrop-blur border-b border-line">
         <div className="max-w-2xl mx-auto px-4 sm:px-6 h-14 flex items-center justify-between gap-3">
           <div className="flex items-center gap-2 min-w-0">
@@ -3274,6 +3574,14 @@ export default function TrainingLog() {
             </div>
 
             <PlateLegend editMode={contentEditMode && isAdminUser} />
+
+            {!isReadOnly && pending.length > 0 && (
+              <button onClick={() => setLibraryUpdatesOpen(true)} className="w-full mb-4 rounded-2xl bg-charge-soft border border-charge/30 p-3.5 flex items-center gap-3 text-right hover:border-charge/60 transition-colors">
+                <Sparkles className="w-4.5 h-4.5 text-charge-strong shrink-0" />
+                <span className="flex-1 text-sm font-bold text-charge-strong">تحديثات متاحة من المكتبة المشتركة لـ{pending.length} تمرين</span>
+                <ChevronRight className="w-4 h-4 text-charge-strong rotate-180 shrink-0" />
+              </button>
+            )}
 
             {(() => {
               // Gated on BOTH elapsed time and actual completed sessions —
@@ -3544,6 +3852,16 @@ export default function TrainingLog() {
         />
       )}
       {modal && <ExerciseModal title={modal.mode === "add" ? "إضافة تمرين" : "تعديل تمرين"} initial={modal.exercise} isAdminUser={isAdminUser} currentUid={firebaseUser?.uid} canSubmitLibrary={canEdit} authorName={authorName} autoOpenPicker={modal.autoOpenPicker} onCancel={() => setModal(null)} onSave={(form) => { if (modal.mode === "add") addExercise(form); else { updateExercise({ ...form, id: modal.exercise.id }); setModal(null); } }} />}
+      {libraryUpdatesOpen && (
+        <LibraryUpdatesModal
+          rows={pending}
+          onClose={() => setLibraryUpdatesOpen(false)}
+          onApply={(r) => applyLibraryUpdate(r.dayId, r.exId, r.newVals)}
+          onDismiss={(r) => dismissLibraryUpdate(r.dayId, r.exId)}
+          onApplyAll={() => { pending.forEach((r) => applyLibraryUpdate(r.dayId, r.exId, r.newVals)); setLibraryUpdatesOpen(false); }}
+          onDismissAll={() => { pending.forEach((r) => dismissLibraryUpdate(r.dayId, r.exId)); setLibraryUpdatesOpen(false); }}
+        />
+      )}
       {newPlanOpen && <NewPlanModal onCancel={() => setNewPlanOpen(false)} onCreate={createPlan} />}
       {manageDaysOpen && <ManageDaysModal days={plan.days} onCancel={() => setManageDaysOpen(false)} onSave={saveDays} />}
       {syncOpen && <ProfileModal user={firebaseUser} authorName={authorName} onCancel={() => setSyncOpen(false)} onSignIn={doSignIn} onUpgrade={doUpgrade} onSignOut={doSignOut} status={syncStatus} error={syncError} />}
