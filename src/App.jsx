@@ -3188,6 +3188,7 @@ export default function TrainingLog() {
   const [saveError, setSaveError] = useState(false);
   const [firebaseUser, setFirebaseUser] = useState(null);
   const [profileName, setProfileName] = useState(null); // the mandatory first+family name, NOT the Google account name — used everywhere a person's name is shown/attributed, since email/password accounts often have no display name at all
+  const authorName = profileName || firebaseUser?.displayName || "";
   const [needsName, setNeedsName] = useState(false);
   const [syncStatus, setSyncStatus] = useState("idle");
   const [remoteChecked, setRemoteChecked] = useState(false);
@@ -3454,8 +3455,6 @@ export default function TrainingLog() {
     setProfileName(`${first} ${family}`.trim());
     setNeedsName(false);
   };
-  const authorName = profileName || firebaseUser?.displayName || "";
-
   const changeTheme = (id) => {
     setTheme(id);
     applyTheme(id);
